@@ -10,9 +10,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/gotd/td/telegram/uploader"
 	"github.com/gotd/td/tg"
+	ffprobe "github.com/vansante/go-ffprobe"
 )
 
 type mediaRequest struct {
@@ -20,7 +22,24 @@ type mediaRequest struct {
 	ThumbPath string
 }
 
-func (s *Service) prepareDocumentMedia(ctx context.Context, api *tg.Client, req mediaRequest) (tg.InputMediaClass, error) {
+type mediaKind int
+
+const (
+	mediaKindUnknown mediaKind = iota
+	mediaKindPhoto
+	mediaKindVideo
+)
+
+type mediaMetadata struct {
+	Kind     mediaKind
+	MIME     string
+	Width    int
+	Height   int
+	Duration time.Duration
+	HasAudio bool
+}
+
+func (s *Service) prepareMedia(ctx context.Context, api *tg.Client, req mediaRequest) (tg.InputMediaClass, error) {
 	upload := uploader.NewUploader(api)
 
 	file, err := upload.FromPath(ctx, req.FilePath)
@@ -36,22 +55,101 @@ func (s *Service) prepareDocumentMedia(ctx context.Context, api *tg.Client, req 
 		}
 	}
 
-	mimeType, err := detectMimeType(req.FilePath)
-	if err != nil {
-		return nil, err
+	meta, probeErr := analyzeMedia(ctx, req.FilePath)
+	if probeErr != nil && s.io.err != nil {
+		fmt.Fprintf(s.io.err, "warning: ffprobe failed for %s, falling back to MIME detection (%v)\n", req.FilePath, probeErr)
+	}
+	if meta.Kind == mediaKindUnknown {
+		meta.Kind = guessKindFromMIME(meta.MIME)
 	}
 
-	media := &tg.InputMediaUploadedDocument{
-		File:     file,
-		MimeType: mimeType,
-		Attributes: []tg.DocumentAttributeClass{
+	switch meta.Kind {
+	case mediaKindPhoto:
+		if thumb != nil && s.io.err != nil {
+			fmt.Fprintf(s.io.err, "warning: custom thumbnails are ignored for photos (%s)\n", req.FilePath)
+		}
+		return &tg.InputMediaUploadedPhoto{File: file}, nil
+	case mediaKindVideo:
+		attrs := []tg.DocumentAttributeClass{
 			&tg.DocumentAttributeFilename{FileName: filepath.Base(req.FilePath)},
-		},
+		}
+		videoAttr := &tg.DocumentAttributeVideo{
+			Duration: meta.Duration.Seconds(),
+			W:        meta.Width,
+			H:        meta.Height,
+		}
+		videoAttr.SetSupportsStreaming(true)
+		if !meta.HasAudio {
+			videoAttr.SetNosound(true)
+		}
+		attrs = append(attrs, videoAttr)
+		media := &tg.InputMediaUploadedDocument{
+			File:       file,
+			MimeType:   meta.MIME,
+			Attributes: attrs,
+		}
+		if thumb != nil {
+			media.Thumb = thumb
+		}
+		return media, nil
+	default:
+		media := &tg.InputMediaUploadedDocument{
+			File:     file,
+			MimeType: meta.MIME,
+			Attributes: []tg.DocumentAttributeClass{
+				&tg.DocumentAttributeFilename{FileName: filepath.Base(req.FilePath)},
+			},
+		}
+		if thumb != nil {
+			media.Thumb = thumb
+		}
+		return media, nil
 	}
-	if thumb != nil {
-		media.Thumb = thumb
+}
+
+func analyzeMedia(ctx context.Context, path string) (mediaMetadata, error) {
+	meta := mediaMetadata{}
+	mimeType, err := detectMimeType(path)
+	if err != nil {
+		return meta, err
 	}
-	return media, nil
+	meta.MIME = mimeType
+
+	data, err := ffprobe.GetProbeDataContext(ctx, path)
+	if err != nil {
+		meta.Kind = guessKindFromMIME(mimeType)
+		return meta, err
+	}
+
+	if video := data.GetFirstVideoStream(); video != nil {
+		meta.Kind = mediaKindVideo
+		meta.Width = video.Width
+		meta.Height = video.Height
+		if data.Format != nil {
+			meta.Duration = data.Format.Duration()
+		}
+		if audio := data.GetFirstAudioStream(); audio != nil {
+			meta.HasAudio = true
+		}
+		return meta, nil
+	}
+
+	meta.Kind = guessKindFromMIME(mimeType)
+	return meta, nil
+}
+
+func guessKindFromMIME(mimeType string) mediaKind {
+	lower := strings.ToLower(strings.TrimSpace(mimeType))
+	switch {
+	case strings.HasPrefix(lower, "video/"):
+		return mediaKindVideo
+	case lower == "image/gif":
+		return mediaKindVideo
+	case strings.HasPrefix(lower, "image/"):
+		return mediaKindPhoto
+	default:
+		return mediaKindUnknown
+	}
 }
 
 func detectMimeType(path string) (string, error) {

@@ -124,7 +124,7 @@ func (s *Service) Upload(ctx context.Context, req UploadRequest) error {
 			return err
 		}
 
-		media, err := s.prepareDocumentMedia(ctx, api, mediaRequest{FilePath: req.FilePath, ThumbPath: req.ThumbPath})
+		media, err := s.prepareMedia(ctx, api, mediaRequest{FilePath: req.FilePath, ThumbPath: req.ThumbPath})
 		if err != nil {
 			return err
 		}
@@ -185,7 +185,7 @@ func (s *Service) ReplaceMedia(ctx context.Context, req ReplaceRequest) error {
 			entities = original.Entities
 		}
 
-		media, err := s.prepareDocumentMedia(ctx, api, mediaRequest{FilePath: req.FilePath, ThumbPath: req.ThumbPath})
+		media, err := s.prepareMedia(ctx, api, mediaRequest{FilePath: req.FilePath, ThumbPath: req.ThumbPath})
 		if err != nil {
 			return err
 		}

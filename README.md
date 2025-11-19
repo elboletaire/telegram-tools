@@ -6,6 +6,11 @@ Command-line helpers for uploading and reuploading media on Telegram channels wi
 
 Uploading, reuploading and listing posts now use a real Telegram client built on gotd. The first run will prompt for the login code (and 2FA password when enabled) and save a session to disk so subsequent executions work non-interactively.
 
+## Requirements
+
+- Go 1.21+
+- `ffprobe` available in your `$PATH` (part of FFmpeg) so `ttools` can read video metadata and send media inline. Without it uploads still work, but Telegram will treat videos as generic files.
+
 ## Project layout
 
 ```
@@ -47,7 +52,7 @@ If you place the config elsewhere, run with `ttools --config /path/to/file uploa
 ttools upload [file]
     --caption string   Override caption text
     --silent           Send without notification
-    --thumb string     Custom thumbnail for this upload
+    --thumb string     Custom thumbnail for this upload (videos only)
 
 ttools reupload [file]
     --post-id int      (required) Message identifier to replace
