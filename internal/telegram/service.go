@@ -1,0 +1,568 @@
+package telegram
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/gotd/td/crypto"
+	"github.com/gotd/td/session"
+	"github.com/gotd/td/telegram"
+	"github.com/gotd/td/telegram/auth"
+	"github.com/gotd/td/telegram/message/peer"
+	"github.com/gotd/td/tg"
+
+	"github.com/elboletaire/ttools/internal/config"
+)
+
+// ServiceOption configures the Telegram service behavior.
+type ServiceOption func(*Service)
+
+// WithIO overrides the streams used for prompts and status messages.
+func WithIO(in io.Reader, out, err io.Writer) ServiceOption {
+	return func(s *Service) {
+		if in != nil {
+			s.io.in = in
+		}
+		if out != nil {
+			s.io.out = out
+		}
+		if err != nil {
+			s.io.err = err
+		}
+	}
+}
+
+// Service exposes higher level helpers to interact with Telegram channels.
+type Service struct {
+	cfg *config.Config
+	io  ioStreams
+
+	prompter *prompter
+
+	peerMu    sync.RWMutex
+	peerCache map[string]*channelPeer
+}
+
+type ioStreams struct {
+	in  io.Reader
+	out io.Writer
+	err io.Writer
+}
+
+// NewService builds a Service with the loaded configuration.
+func NewService(cfg *config.Config, opts ...ServiceOption) *Service {
+	s := &Service{
+		cfg: cfg,
+		io: ioStreams{
+			in:  os.Stdin,
+			out: os.Stdout,
+			err: os.Stderr,
+		},
+		peerCache: make(map[string]*channelPeer),
+	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	s.prompter = newPrompter(s.io.in, s.io.out, s.io.err)
+	return s
+}
+
+// UploadRequest represents the data needed to push a new file.
+type UploadRequest struct {
+	Channel   string
+	FilePath  string
+	ThumbPath string
+	Caption   string
+	Silent    bool
+}
+
+// ReplaceRequest is used to edit the media content of a message.
+type ReplaceRequest struct {
+	Channel   string
+	PostID    int
+	FilePath  string
+	ThumbPath string
+	Caption   string
+	Silent    bool
+}
+
+// ListPostsRequest describes pagination/search filters.
+type ListPostsRequest struct {
+	Channel string
+	Limit   int
+	Search  string
+}
+
+// PostInfo contains the minimal data required for CLI rendering.
+type PostInfo struct {
+	ID        int
+	Date      time.Time
+	MediaType string
+	Caption   string
+}
+
+// Upload uploads a new file to a channel.
+func (s *Service) Upload(ctx context.Context, req UploadRequest) error {
+	if strings.TrimSpace(req.FilePath) == "" {
+		return fmt.Errorf("file path is required")
+	}
+	if strings.TrimSpace(req.Channel) == "" {
+		return fmt.Errorf("channel is required")
+	}
+
+	return s.run(ctx, func(ctx context.Context, api *tg.Client) error {
+		channel, err := s.resolveChannel(ctx, api, req.Channel)
+		if err != nil {
+			return err
+		}
+
+		media, err := s.prepareDocumentMedia(ctx, api, mediaRequest{FilePath: req.FilePath, ThumbPath: req.ThumbPath})
+		if err != nil {
+			return err
+		}
+
+		randomID, err := crypto.RandInt64(crypto.DefaultRand())
+		if err != nil {
+			return fmt.Errorf("generate random id: %w", err)
+		}
+
+		send := &tg.MessagesSendMediaRequest{
+			Peer:     channel.peer,
+			Media:    media,
+			Message:  req.Caption,
+			RandomID: randomID,
+		}
+		send.SetSilent(req.Silent)
+
+		updates, err := api.MessagesSendMedia(ctx, send)
+		if err != nil {
+			return err
+		}
+
+		if id, ok := extractMessageID(updates); ok {
+			fmt.Fprintf(s.io.out, "Uploaded message #%d to %s\n", id, channel.display)
+		} else {
+			fmt.Fprintf(s.io.out, "Upload to %s completed\n", channel.display)
+		}
+		return nil
+	})
+}
+
+// ReplaceMedia edits an existing message with new media.
+func (s *Service) ReplaceMedia(ctx context.Context, req ReplaceRequest) error {
+	if strings.TrimSpace(req.FilePath) == "" {
+		return fmt.Errorf("file path is required")
+	}
+	if req.PostID == 0 {
+		return fmt.Errorf("post id is required")
+	}
+	if strings.TrimSpace(req.Channel) == "" {
+		return fmt.Errorf("channel is required")
+	}
+
+	return s.run(ctx, func(ctx context.Context, api *tg.Client) error {
+		channel, err := s.resolveChannel(ctx, api, req.Channel)
+		if err != nil {
+			return err
+		}
+
+		caption := req.Caption
+		var entities []tg.MessageEntityClass
+		if strings.TrimSpace(caption) == "" {
+			original, err := s.fetchMessage(ctx, api, channel, req.PostID)
+			if err != nil {
+				return err
+			}
+			caption = original.Message
+			entities = original.Entities
+		}
+
+		media, err := s.prepareDocumentMedia(ctx, api, mediaRequest{FilePath: req.FilePath, ThumbPath: req.ThumbPath})
+		if err != nil {
+			return err
+		}
+
+		edit := &tg.MessagesEditMessageRequest{
+			Peer:     channel.peer,
+			ID:       req.PostID,
+			Media:    media,
+			Message:  caption,
+			Entities: entities,
+		}
+
+		if _, err := api.MessagesEditMessage(ctx, edit); err != nil {
+			return err
+		}
+
+		fmt.Fprintf(s.io.out, "Reuploaded message #%d in %s\n", req.PostID, channel.display)
+		return nil
+	})
+}
+
+// ListPosts returns the most recent posts in the channel.
+func (s *Service) ListPosts(ctx context.Context, req ListPostsRequest) ([]PostInfo, error) {
+	limit := req.Limit
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 200 {
+		limit = 200
+	}
+
+	var posts []PostInfo
+	err := s.run(ctx, func(ctx context.Context, api *tg.Client) error {
+		channel, err := s.resolveChannel(ctx, api, req.Channel)
+		if err != nil {
+			return err
+		}
+
+		history, err := api.MessagesGetHistory(ctx, &tg.MessagesGetHistoryRequest{
+			Peer:  channel.peer,
+			Limit: limit,
+		})
+		if err != nil {
+			return err
+		}
+
+		messages, err := collectMessages(history)
+		if err != nil {
+			return err
+		}
+
+		filter := strings.ToLower(strings.TrimSpace(req.Search))
+		for _, msg := range messages {
+			caption := strings.TrimSpace(msg.Message)
+			if filter != "" && !strings.Contains(strings.ToLower(caption), filter) {
+				continue
+			}
+
+			posts = append(posts, PostInfo{
+				ID:        msg.ID,
+				Date:      time.Unix(int64(msg.Date), 0).UTC(),
+				MediaType: describeMedia(msg.Media),
+				Caption:   caption,
+			})
+			if len(posts) >= limit {
+				break
+			}
+		}
+		return nil
+	})
+	return posts, err
+}
+
+func (s *Service) run(ctx context.Context, fn func(context.Context, *tg.Client) error) error {
+	cfg := s.cfg
+	if cfg == nil {
+		return errors.New("configuration is not available")
+	}
+	if err := ensureDir(filepath.Dir(cfg.SessionFile())); err != nil {
+		return fmt.Errorf("prepare session directory: %w", err)
+	}
+
+	storage := &session.FileStorage{Path: cfg.SessionFile()}
+	client := telegram.NewClient(cfg.API.ID, cfg.API.Hash, telegram.Options{
+		SessionStorage: storage,
+	})
+
+	return client.Run(ctx, func(runCtx context.Context) error {
+		flow := auth.NewFlow(s.authenticator(), auth.SendCodeOptions{})
+		if err := client.Auth().IfNecessary(runCtx, flow); err != nil {
+			return err
+		}
+		return fn(runCtx, client.API())
+	})
+}
+
+func ensureDir(path string) error {
+	if path == "" {
+		return nil
+	}
+	return os.MkdirAll(path, 0o700)
+}
+
+func (s *Service) authenticator() auth.UserAuthenticator {
+	return &interactiveAuth{
+		phone:    strings.TrimSpace(s.cfg.API.Phone),
+		password: strings.TrimSpace(s.cfg.API.Password),
+		prompter: s.prompter,
+	}
+}
+
+func (s *Service) resolveChannel(ctx context.Context, api *tg.Client, identifier string) (*channelPeer, error) {
+	id := strings.TrimSpace(identifier)
+	if id == "" {
+		return nil, fmt.Errorf("channel is required")
+	}
+	if peer := s.cachedPeer(id); peer != nil {
+		return peer, nil
+	}
+
+	if ident, ok := parseChatIdentifier(id); ok {
+		peer, err := s.resolveByChatID(ctx, api, ident)
+		if err != nil {
+			return nil, err
+		}
+		s.cachePeer(peer, id, ident.cacheKey())
+		return peer, nil
+	}
+
+	resolver := peer.DefaultResolver(api)
+	promise := peer.Resolve(resolver, id)
+	inputPeer, err := promise(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("resolve channel %q: %w", id, err)
+	}
+
+	asChannel, ok := inputPeer.(*tg.InputPeerChannel)
+	if !ok {
+		return nil, fmt.Errorf("peer %q is not a channel", id)
+	}
+	if asChannel.AccessHash == 0 {
+		return nil, fmt.Errorf("channel %q is missing access hash", id)
+	}
+
+	peerInfo := &channelPeer{
+		peer:    asChannel,
+		channel: &tg.InputChannel{ChannelID: asChannel.ChannelID, AccessHash: asChannel.AccessHash},
+		display: id,
+	}
+	s.cachePeer(peerInfo, id)
+	return peerInfo, nil
+}
+
+func (s *Service) fetchMessage(ctx context.Context, api *tg.Client, channel *channelPeer, id int) (*tg.Message, error) {
+	resp, err := api.ChannelsGetMessages(ctx, &tg.ChannelsGetMessagesRequest{
+		Channel: channel.channel,
+		ID:      []tg.InputMessageClass{&tg.InputMessageID{ID: id}},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	messages, err := collectMessages(resp)
+	if err != nil {
+		return nil, err
+	}
+	if len(messages) == 0 {
+		return nil, fmt.Errorf("message #%d not found", id)
+	}
+	return messages[0], nil
+}
+
+type channelPeer struct {
+	peer    *tg.InputPeerChannel
+	channel *tg.InputChannel
+	display string
+}
+
+const botAPIChannelOffset int64 = 1000000000000
+
+type chatKind int
+
+const (
+	chatKindUnknown chatKind = iota
+	chatKindChannel
+)
+
+type chatIdentifier struct {
+	raw  string
+	kind chatKind
+	id   int64
+}
+
+func (c chatIdentifier) cacheKey() string {
+	if c.kind == chatKindChannel && c.id > 0 {
+		return fmt.Sprintf("chan:%d", c.id)
+	}
+	return ""
+}
+
+func parseChatIdentifier(raw string) (chatIdentifier, bool) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return chatIdentifier{}, false
+	}
+	n, err := strconv.ParseInt(trimmed, 10, 64)
+	if err != nil {
+		return chatIdentifier{}, false
+	}
+	ident := chatIdentifier{raw: trimmed}
+	switch {
+	case n <= -botAPIChannelOffset:
+		ident.kind = chatKindChannel
+		ident.id = -n - botAPIChannelOffset
+		return ident, true
+	case n > 0:
+		ident.kind = chatKindChannel
+		ident.id = n
+		return ident, true
+	default:
+		return chatIdentifier{}, false
+	}
+}
+
+func (s *Service) resolveByChatID(ctx context.Context, api *tg.Client, ident chatIdentifier) (*channelPeer, error) {
+	if ident.kind != chatKindChannel {
+		return nil, fmt.Errorf("chat id %s is not a supported channel identifier", ident.raw)
+	}
+	peer, err := s.lookupChannelDialog(ctx, api, ident.id)
+	if err != nil {
+		return nil, err
+	}
+	if peer == nil {
+		return nil, fmt.Errorf("chat id %s not found among your dialogs; ensure this account joined the channel", ident.raw)
+	}
+	peer.display = ident.raw
+	return peer, nil
+}
+
+func (s *Service) lookupChannelDialog(ctx context.Context, api *tg.Client, channelID int64) (*channelPeer, error) {
+	offsetPeer := tg.InputPeerClass(&tg.InputPeerEmpty{})
+	offsetID := 0
+	offsetDate := 0
+	for {
+		resp, err := api.MessagesGetDialogs(ctx, &tg.MessagesGetDialogsRequest{
+			OffsetDate: offsetDate,
+			OffsetID:   offsetID,
+			OffsetPeer: offsetPeer,
+			Limit:      100,
+			Hash:       0,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("get dialogs: %w", err)
+		}
+
+		batch, err := newDialogBatch(resp)
+		if err != nil {
+			return nil, err
+		}
+
+		if peer := matchChannelInChats(batch.chats, channelID); peer != nil {
+			return peer, nil
+		}
+
+		if len(batch.dialogs) == 0 {
+			break
+		}
+		last, ok := batch.dialogs[len(batch.dialogs)-1].(*tg.Dialog)
+		if !ok {
+			break
+		}
+		offsetID = last.TopMessage
+		offsetDate = findMessageDate(batch.messages, last.TopMessage)
+		if offsetDate == 0 {
+			offsetDate = int(time.Now().Unix())
+		}
+		offsetPeer = buildInputPeer(last.Peer, batch.chats)
+		if offsetPeer == nil {
+			offsetPeer = &tg.InputPeerEmpty{}
+		}
+	}
+	return nil, nil
+}
+
+type dialogBatch struct {
+	dialogs  []tg.DialogClass
+	messages []tg.MessageClass
+	chats    []tg.ChatClass
+}
+
+func newDialogBatch(resp tg.MessagesDialogsClass) (dialogBatch, error) {
+	switch v := resp.(type) {
+	case *tg.MessagesDialogs:
+		return dialogBatch{
+			dialogs:  v.Dialogs,
+			messages: v.Messages,
+			chats:    v.Chats,
+		}, nil
+	case *tg.MessagesDialogsSlice:
+		return dialogBatch{
+			dialogs:  v.Dialogs,
+			messages: v.Messages,
+			chats:    v.Chats,
+		}, nil
+	default:
+		return dialogBatch{}, fmt.Errorf("unsupported dialogs response %T", resp)
+	}
+}
+
+func matchChannelInChats(chats []tg.ChatClass, channelID int64) *channelPeer {
+	ch := findChannel(chats, channelID)
+	if ch == nil || ch.AccessHash == 0 {
+		return nil
+	}
+	return &channelPeer{
+		peer:    &tg.InputPeerChannel{ChannelID: ch.ID, AccessHash: ch.AccessHash},
+		channel: &tg.InputChannel{ChannelID: ch.ID, AccessHash: ch.AccessHash},
+	}
+}
+
+func findChannel(chats []tg.ChatClass, channelID int64) *tg.Channel {
+	for _, ch := range chats {
+		channel, ok := ch.(*tg.Channel)
+		if !ok {
+			continue
+		}
+		if channel.ID == channelID {
+			return channel
+		}
+	}
+	return nil
+}
+
+func findMessageDate(messages []tg.MessageClass, id int) int {
+	for _, m := range messages {
+		msg, ok := m.(*tg.Message)
+		if !ok {
+			continue
+		}
+		if msg.ID == id {
+			return msg.Date
+		}
+	}
+	return 0
+}
+
+func buildInputPeer(peer tg.PeerClass, chats []tg.ChatClass) tg.InputPeerClass {
+	switch p := peer.(type) {
+	case *tg.PeerChannel:
+		ch := findChannel(chats, p.ChannelID)
+		if ch == nil || ch.AccessHash == 0 {
+			return &tg.InputPeerEmpty{}
+		}
+		return &tg.InputPeerChannel{ChannelID: p.ChannelID, AccessHash: ch.AccessHash}
+	case *tg.PeerChat:
+		return &tg.InputPeerChat{ChatID: p.ChatID}
+	default:
+		return &tg.InputPeerEmpty{}
+	}
+}
+
+func (s *Service) cachedPeer(key string) *channelPeer {
+	s.peerMu.RLock()
+	defer s.peerMu.RUnlock()
+	return s.peerCache[key]
+}
+
+func (s *Service) cachePeer(peer *channelPeer, keys ...string) {
+	if peer == nil {
+		return
+	}
+	s.peerMu.Lock()
+	defer s.peerMu.Unlock()
+	for _, key := range keys {
+		if key == "" {
+			continue
+		}
+		s.peerCache[key] = peer
+	}
+}
