@@ -34,15 +34,15 @@ func newPostsListCommand() *cobra.Command {
 				return err
 			}
 
-			channel, err := cfg.ResolveChannel("")
+			chat, err := cfg.ResolveChat("")
 			if err != nil {
 				return err
 			}
 
 			req := telegram.ListPostsRequest{
-				Channel: channel,
-				Limit:   opts.limit,
-				Search:  opts.search,
+				ChatId: chat,
+				Limit:  opts.limit,
+				Search: opts.search,
 			}
 
 			svc := telegram.NewService(cfg, telegram.WithIO(cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr()))
@@ -57,7 +57,7 @@ func newPostsListCommand() *cobra.Command {
 				return nil
 			}
 
-			fmt.Fprintf(out, "Found %d posts in %s\n", len(posts), channel)
+			fmt.Fprintf(out, "Found %d posts in %s\n", len(posts), chat)
 			for _, post := range posts {
 				fmt.Fprintf(out, "#%d %s [%s] %s\n", post.ID, post.Date.Format(time.RFC3339), post.MediaType, post.Caption)
 			}

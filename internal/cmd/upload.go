@@ -30,7 +30,7 @@ func newUploadCommand() *cobra.Command {
 				return fmt.Errorf("expand file path: %w", err)
 			}
 
-			channel, err := cfg.ResolveChannel("")
+			chat, err := cfg.ResolveChat("")
 			if err != nil {
 				return err
 			}
@@ -48,7 +48,7 @@ func newUploadCommand() *cobra.Command {
 
 			svc := telegram.NewService(cfg, telegram.WithIO(cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr()))
 			return svc.Upload(cmd.Context(), telegram.UploadRequest{
-				Channel:   channel,
+				ChatId:    chat,
 				FilePath:  filePath,
 				ThumbPath: thumb,
 				Caption:   opts.caption,

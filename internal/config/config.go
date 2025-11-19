@@ -34,8 +34,8 @@ type SessionConfig struct {
 
 // DefaultsConfig hosts frequently reused flag values.
 type DefaultsConfig struct {
-	Channel string `mapstructure:"channel"`
-	Thumb   string `mapstructure:"thumb"`
+	Chat  string `mapstructure:"chat"`
+	Thumb string `mapstructure:"thumb"`
 }
 
 // ResolvePaths ensures configuration paths are expanded into absolute form.
@@ -54,7 +54,7 @@ func (c *Config) ResolvePaths() error {
 		}
 	}
 
-	c.Defaults.Channel = strings.TrimSpace(c.Defaults.Channel)
+	c.Defaults.Chat = strings.TrimSpace(c.Defaults.Chat)
 	return nil
 }
 

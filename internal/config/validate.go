@@ -16,14 +16,14 @@ func (c *Config) RequireAPI() error {
 	return nil
 }
 
-// ResolveChannel returns the effective channel argument.
-func (c *Config) ResolveChannel(provided string) (string, error) {
-	channel := strings.TrimSpace(provided)
-	if channel == "" {
-		channel = c.Defaults.Channel
+// ResolveChat returns the effective chat identifier argument.
+func (c *Config) ResolveChat(provided string) (string, error) {
+	chat := strings.TrimSpace(provided)
+	if chat == "" {
+		chat = c.Defaults.Chat
 	}
-	if channel == "" {
-		return "", fmt.Errorf("channel is required (flag --channel or defaults.channel)")
+	if chat == "" {
+		return "", fmt.Errorf("chat is required (flag --chat or defaults.chat)")
 	}
-	return channel, nil
+	return chat, nil
 }

@@ -77,7 +77,7 @@ func NewService(cfg *config.Config, opts ...ServiceOption) *Service {
 
 // UploadRequest represents the data needed to push a new file.
 type UploadRequest struct {
-	Channel   string
+	ChatId    string
 	FilePath  string
 	ThumbPath string
 	Caption   string
@@ -86,8 +86,8 @@ type UploadRequest struct {
 
 // ReplaceRequest is used to edit the media content of a message.
 type ReplaceRequest struct {
-	Channel   string
-	PostID    int
+	ChatId    string
+	PostId    int
 	FilePath  string
 	ThumbPath string
 	Caption   string
@@ -96,9 +96,9 @@ type ReplaceRequest struct {
 
 // ListPostsRequest describes pagination/search filters.
 type ListPostsRequest struct {
-	Channel string
-	Limit   int
-	Search  string
+	ChatId string
+	Limit  int
+	Search string
 }
 
 // PostInfo contains the minimal data required for CLI rendering.
@@ -114,12 +114,12 @@ func (s *Service) Upload(ctx context.Context, req UploadRequest) error {
 	if strings.TrimSpace(req.FilePath) == "" {
 		return fmt.Errorf("file path is required")
 	}
-	if strings.TrimSpace(req.Channel) == "" {
+	if strings.TrimSpace(req.ChatId) == "" {
 		return fmt.Errorf("channel is required")
 	}
 
 	return s.run(ctx, func(ctx context.Context, api *tg.Client) error {
-		channel, err := s.resolveChannel(ctx, api, req.Channel)
+		channel, err := s.resolveChat(ctx, api, req.ChatId)
 		if err != nil {
 			return err
 		}
@@ -161,15 +161,15 @@ func (s *Service) ReplaceMedia(ctx context.Context, req ReplaceRequest) error {
 	if strings.TrimSpace(req.FilePath) == "" {
 		return fmt.Errorf("file path is required")
 	}
-	if req.PostID == 0 {
+	if req.PostId == 0 {
 		return fmt.Errorf("post id is required")
 	}
-	if strings.TrimSpace(req.Channel) == "" {
+	if strings.TrimSpace(req.ChatId) == "" {
 		return fmt.Errorf("channel is required")
 	}
 
 	return s.run(ctx, func(ctx context.Context, api *tg.Client) error {
-		channel, err := s.resolveChannel(ctx, api, req.Channel)
+		channel, err := s.resolveChat(ctx, api, req.ChatId)
 		if err != nil {
 			return err
 		}
@@ -177,7 +177,7 @@ func (s *Service) ReplaceMedia(ctx context.Context, req ReplaceRequest) error {
 		caption := req.Caption
 		var entities []tg.MessageEntityClass
 		if strings.TrimSpace(caption) == "" {
-			original, err := s.fetchMessage(ctx, api, channel, req.PostID)
+			original, err := s.fetchMessage(ctx, api, channel, req.PostId)
 			if err != nil {
 				return err
 			}
@@ -192,7 +192,7 @@ func (s *Service) ReplaceMedia(ctx context.Context, req ReplaceRequest) error {
 
 		edit := &tg.MessagesEditMessageRequest{
 			Peer:     channel.peer,
-			ID:       req.PostID,
+			ID:       req.PostId,
 			Media:    media,
 			Message:  caption,
 			Entities: entities,
@@ -202,7 +202,7 @@ func (s *Service) ReplaceMedia(ctx context.Context, req ReplaceRequest) error {
 			return err
 		}
 
-		fmt.Fprintf(s.io.out, "Reuploaded message #%d in %s\n", req.PostID, channel.display)
+		fmt.Fprintf(s.io.out, "Reuploaded message #%d in %s\n", req.PostId, channel.display)
 		return nil
 	})
 }
@@ -219,7 +219,7 @@ func (s *Service) ListPosts(ctx context.Context, req ListPostsRequest) ([]PostIn
 
 	var posts []PostInfo
 	err := s.run(ctx, func(ctx context.Context, api *tg.Client) error {
-		channel, err := s.resolveChannel(ctx, api, req.Channel)
+		channel, err := s.resolveChat(ctx, api, req.ChatId)
 		if err != nil {
 			return err
 		}
@@ -297,10 +297,10 @@ func (s *Service) authenticator() auth.UserAuthenticator {
 	}
 }
 
-func (s *Service) resolveChannel(ctx context.Context, api *tg.Client, identifier string) (*channelPeer, error) {
+func (s *Service) resolveChat(ctx context.Context, api *tg.Client, identifier string) (*channelPeer, error) {
 	id := strings.TrimSpace(identifier)
 	if id == "" {
-		return nil, fmt.Errorf("channel is required")
+		return nil, fmt.Errorf("chat is required")
 	}
 	if peer := s.cachedPeer(id); peer != nil {
 		return peer, nil

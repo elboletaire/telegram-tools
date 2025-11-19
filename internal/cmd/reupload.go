@@ -30,7 +30,7 @@ func newReuploadCommand() *cobra.Command {
 				return err
 			}
 
-			channel, err := cfg.ResolveChannel("")
+			chat, err := cfg.ResolveChat("")
 			if err != nil {
 				return err
 			}
@@ -53,8 +53,8 @@ func newReuploadCommand() *cobra.Command {
 
 			svc := telegram.NewService(cfg, telegram.WithIO(cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr()))
 			return svc.ReplaceMedia(cmd.Context(), telegram.ReplaceRequest{
-				Channel:   channel,
-				PostID:    opts.postID,
+				ChatId:    chat,
+				PostId:    opts.postID,
 				FilePath:  filePath,
 				ThumbPath: thumb,
 				Caption:   opts.caption,

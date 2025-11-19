@@ -1,6 +1,6 @@
 # ttools
 
-Command-line helpers for uploading and reuploading media on Telegram channels without relying on third-party bots. The CLI is organized with Cobra and leans on Viper for configuration so that frequently reused options (API credentials, default channel, thumbnail paths, session location) live in a single file. MTProto calls are powered by [`gotd/td`](https://github.com/gotd/td).
+Command-line helpers for uploading and reuploading media on Telegram channels without relying on third-party bots. The CLI is organized with Cobra and leans on Viper for configuration so that frequently reused options (API credentials, default chat, thumbnail paths, session location) live in a single file. MTProto calls are powered by [`gotd/td`](https://github.com/gotd/td).
 
 ## Status
 
@@ -22,7 +22,7 @@ internal/telegram       # Telegram service façade (to be implemented)
 
 ## Configuration
 
-`ttools` searches for `~/.ttools.yaml` by default (override with `--config`). Any value can also come from `TTOOLS_*` environment variables or CLI flags. The `defaults.channel` (or `--channel`) option accepts either an `@username` **or** a numeric chat ID such as `-1001234567890`. Example configuration:
+`ttools` searches for `~/.ttools.yaml` by default (override with `--config`). Any value can also come from `TTOOLS_*` environment variables or CLI flags. The `defaults.chat` (or `--chat`) option accepts either an `@username` **or** a numeric chat ID such as `-1001234567890`. Example configuration:
 
 ```yaml
 api:
@@ -33,7 +33,7 @@ api:
 session:
   file: ~/.local/share/ttools/session.json
 defaults:
-  channel: "@mychannel"
+  chat: "@mychat"
   thumb: ~/Pictures/thumb.jpg
 ```
 
@@ -72,12 +72,12 @@ Global flags apply to every command and can also be stored in the config file:
 --api-hash string      Telegram API hash
 --phone string         Phone number used for login
 --session string       Path to the session file
-    --channel string       Default channel username or chat ID (e.g. -1001234567890)
+--chat string          Default chat username or chat ID (e.g. -1001234567890)
 --thumb string         Default thumbnail for video uploads
 ```
 
 ## Next steps
 
-1. Add video metadata detection/thumbnail logic (wrapping `ffprobe`/`ffmpeg` or a Go lib) so uploads send accurate duration, width, height, and preview.
+1. Auto-generate thumbnails (via ffmpeg) when none are provided, so videos always have a preview.
 2. Let `reupload` fall back to an interactive selection when `--post-id` is omitted, powered by the same listing helper.
 3. Add tests around config loading, flag overrides, and Telegram interactions (mocking gotd) plus richer error-handling/logging.
