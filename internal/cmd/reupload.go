@@ -63,7 +63,7 @@ func newReuploadCommand() *cobra.Command {
 				FilePath:     filePath,
 				ThumbPath:    thumb,
 				Caption:      opts.caption,
-				CaptionSet:   captionProvided,
+				CaptionSet:   captionProvided || opts.clearCaption,
 				ClearCaption: opts.clearCaption,
 				Silent:       opts.silent,
 			})
@@ -74,6 +74,7 @@ func newReuploadCommand() *cobra.Command {
 	cmd.Flags().StringVar(&opts.caption, "caption", "", "Optional new caption")
 	cmd.Flags().StringVar(&opts.thumb, "thumb", "", "New thumbnail for this media")
 	cmd.Flags().BoolVar(&opts.clearCaption, "clear-caption", false, "Remove the caption entirely")
+	cmd.Flags().BoolVar(&opts.clearCaption, "remove-caption", false, "Remove the caption entirely (alias)")
 	cmd.Flags().BoolVar(&opts.silent, "silent", false, "Edit message silently if possible")
 
 	return cmd

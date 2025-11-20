@@ -220,7 +220,7 @@ func (s *Service) ReplaceMedia(ctx context.Context, req ReplaceRequest) error {
 		thumbName = filepath.Base(req.ThumbPath)
 	}
 	captionPreview := ""
-	if req.CaptionSet {
+	if req.CaptionSet && !req.ClearCaption {
 		captionPreview = formatCaptionPreview(req.Caption)
 	}
 	progressUI := newUploadProgressDisplay(s.io.out, reuploadActionLabel, fileName, thumbName, captionPreview, req.ClearCaption)
@@ -239,15 +239,16 @@ func (s *Service) ReplaceMedia(ctx context.Context, req ReplaceRequest) error {
 
 		caption := req.Caption
 		var entities []tg.MessageEntityClass
-		if !req.CaptionSet && !req.ClearCaption {
+		switch {
+		case req.ClearCaption:
+			caption = ""
+		case !req.CaptionSet:
 			original, err := s.fetchMessage(ctx, api, channel, req.PostId)
 			if err != nil {
 				return err
 			}
 			caption = original.Message
 			entities = original.Entities
-		} else if req.ClearCaption {
-			caption = ""
 		}
 
 		media, err := s.prepareMedia(ctx, api, mediaRequest{
@@ -260,11 +261,13 @@ func (s *Service) ReplaceMedia(ctx context.Context, req ReplaceRequest) error {
 		}
 
 		edit := &tg.MessagesEditMessageRequest{
-			Peer:     channel.peer,
-			ID:       req.PostId,
-			Media:    media,
-			Message:  caption,
-			Entities: entities,
+			Peer: channel.peer,
+			ID:   req.PostId,
+		}
+		edit.SetMedia(media)
+		edit.SetMessage(caption) // always set message so empty captions clear properly
+		if len(entities) > 0 {
+			edit.SetEntities(entities)
 		}
 
 		if _, err := api.MessagesEditMessage(ctx, edit); err != nil {
