@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -13,8 +14,12 @@ import (
 	"github.com/elboletaire/ttools/internal/telegram"
 )
 
+const defaultAutoCaptionRegex = "^[^-]*-\\s*(.*)$"
+
 func newUploadCommand() *cobra.Command {
-	opts := &uploadOptions{}
+	opts := &uploadOptions{
+		autoCaptionRegex: defaultAutoCaptionRegex,
+	}
 
 	cmd := &cobra.Command{
 		Use:   "upload [file...]",
@@ -55,6 +60,14 @@ func newUploadCommand() *cobra.Command {
 				}
 			}
 
+			var autoCaptionRe *regexp.Regexp
+			if opts.autoCaption {
+				autoCaptionRe, err = regexp.Compile(opts.autoCaptionRegex)
+				if err != nil {
+					return fmt.Errorf("compile autocaption regex: %w", err)
+				}
+			}
+
 			svc := telegram.NewService(cfg, telegram.WithIO(cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr()))
 			for _, arg := range args {
 				filePath, err := config.ExpandPath(arg)
@@ -78,12 +91,25 @@ func newUploadCommand() *cobra.Command {
 					fmt.Fprintf(out, "🖼️ Using detected thumbnail %s\n", filepath.Base(thumb))
 				}
 
+				caption := opts.caption
+				captionSet := captionProvided
+				if opts.autoCaption && autoCaptionRe != nil {
+					name := strings.TrimSuffix(filepath.Base(filePath), filepath.Ext(filePath))
+					rg := autoCaptionRe.FindStringSubmatch(name)
+					if len(rg) > 1 {
+						caption = strings.TrimSpace(rg[1])
+					} else {
+						caption = name
+					}
+					captionSet = true
+				}
+
 				if err := svc.Upload(cmd.Context(), telegram.UploadRequest{
 					ChatId:     chat,
 					FilePath:   filePath,
 					ThumbPath:  thumb,
-					Caption:    opts.caption,
-					CaptionSet: captionProvided,
+					Caption:    caption,
+					CaptionSet: captionSet,
 					Silent:     opts.silent,
 				}); err != nil {
 					return err
@@ -96,15 +122,19 @@ func newUploadCommand() *cobra.Command {
 
 	cmd.Flags().StringVar(&opts.caption, "caption", "", "Override caption text")
 	cmd.Flags().StringVar(&opts.thumb, "thumb", "", "Custom thumbnail for this upload")
+	cmd.Flags().BoolVar(&opts.autoCaption, "autocaption", false, "Set caption from file name using a regex")
+	cmd.Flags().StringVar(&opts.autoCaptionRegex, "autocaption-regex", opts.autoCaptionRegex, "Regex to capture caption from file name (uses first group)")
 	cmd.Flags().BoolVar(&opts.silent, "silent", false, "Send message without notification")
 
 	return cmd
 }
 
 type uploadOptions struct {
-	caption string
-	thumb   string
-	silent  bool
+	caption          string
+	thumb            string
+	silent           bool
+	autoCaption      bool
+	autoCaptionRegex string
 }
 
 func findSiblingThumbnail(filePath string) (string, bool, error) {
