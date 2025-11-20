@@ -17,10 +17,12 @@ func newUploadCommand() *cobra.Command {
 	opts := &uploadOptions{}
 
 	cmd := &cobra.Command{
-		Use:   "upload [file]",
+		Use:   "upload [file...]",
 		Short: "Upload a file to a Telegram channel",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			out := cmd.OutOrStdout()
+
 			cfg, err := configFromContext(cmd)
 			if err != nil {
 				return err
@@ -29,49 +31,66 @@ func newUploadCommand() *cobra.Command {
 				return err
 			}
 
-			filePath, err := config.ExpandPath(args[0])
-			if err != nil {
-				return fmt.Errorf("expand file path: %w", err)
-			}
 			thumbProvided := cmd.Flags().Changed("thumb")
-			autoThumbFound := false
+			captionProvided := cmd.Flags().Changed("caption")
 
 			chat, err := cfg.ResolveChat("")
 			if err != nil {
 				return err
 			}
 
-			thumb := opts.thumb
-			if !thumbProvided {
-				thumb, autoThumbFound, err = findSiblingThumbnail(filePath)
+			providedThumb := opts.thumb
+			if thumbProvided && providedThumb != "" {
+				providedThumb, err = config.ExpandPath(providedThumb)
 				if err != nil {
+					return fmt.Errorf("expand provided thumb: %w", err)
+				}
+			}
+
+			defaultThumb := cfg.Defaults.Thumb
+			if defaultThumb != "" {
+				defaultThumb, err = config.ExpandPath(defaultThumb)
+				if err != nil {
+					return fmt.Errorf("expand default thumb: %w", err)
+				}
+			}
+
+			svc := telegram.NewService(cfg, telegram.WithIO(cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr()))
+			for _, arg := range args {
+				filePath, err := config.ExpandPath(arg)
+				if err != nil {
+					return fmt.Errorf("expand file path %q: %w", arg, err)
+				}
+				thumb := providedThumb
+				autoThumbFound := false
+				if !thumbProvided {
+					thumb, autoThumbFound, err = findSiblingThumbnail(filePath)
+					if err != nil {
+						return err
+					}
+					if thumb == "" {
+						thumb = defaultThumb
+					}
+				} else if thumb == "" {
+					thumb = defaultThumb
+				}
+				if autoThumbFound {
+					fmt.Fprintf(out, "🖼️ Using detected thumbnail %s\n", filepath.Base(thumb))
+				}
+
+				if err := svc.Upload(cmd.Context(), telegram.UploadRequest{
+					ChatId:     chat,
+					FilePath:   filePath,
+					ThumbPath:  thumb,
+					Caption:    opts.caption,
+					CaptionSet: captionProvided,
+					Silent:     opts.silent,
+				}); err != nil {
 					return err
 				}
 			}
-			if thumb == "" {
-				thumb = cfg.Defaults.Thumb
-			}
-			if thumb != "" {
-				thumb, err = config.ExpandPath(thumb)
-				if err != nil {
-					return fmt.Errorf("expand thumb: %w", err)
-				}
-				if autoThumbFound {
-					fmt.Fprintf(cmd.OutOrStdout(), "🖼️ Using detected thumbnail %s\n", filepath.Base(thumb))
-				}
-			}
 
-			captionProvided := cmd.Flags().Changed("caption")
-
-			svc := telegram.NewService(cfg, telegram.WithIO(cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr()))
-			return svc.Upload(cmd.Context(), telegram.UploadRequest{
-				ChatId:     chat,
-				FilePath:   filePath,
-				ThumbPath:  thumb,
-				Caption:    opts.caption,
-				CaptionSet: captionProvided,
-				Silent:     opts.silent,
-			})
+			return nil
 		},
 	}
 
