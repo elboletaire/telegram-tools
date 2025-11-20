@@ -18,6 +18,7 @@ import (
 	"github.com/gotd/td/telegram/auth"
 	"github.com/gotd/td/telegram/message/peer"
 	"github.com/gotd/td/tg"
+	"github.com/gotd/td/tgerr"
 
 	"github.com/elboletaire/ttools/internal/config"
 )
@@ -107,6 +108,11 @@ type ListPostsRequest struct {
 	ChatId string
 	Limit  int
 	Search string
+	// OnBatch, if set, is called after each batch is processed with the total
+	// number of messages fetched so far (before filtering).
+	OnBatch func(total int)
+	// OnFloodWait, if set, is called before waiting on Telegram FLOOD_WAIT.
+	OnFloodWait func(delay time.Duration, total int)
 }
 
 // PostInfo contains the minimal data required for CLI rendering.
@@ -171,7 +177,16 @@ func (s *Service) Upload(ctx context.Context, req UploadRequest) error {
 		}
 		send.SetSilent(req.Silent)
 
-		updates, err := api.MessagesSendMedia(ctx, send)
+		var updates tg.UpdatesClass
+		onFlood := s.buildFloodLogger(req.ChatId, fileName)
+		err = callWithFloodRetry(ctx, func() error {
+			u, err := api.MessagesSendMedia(ctx, send)
+			if err != nil {
+				return err
+			}
+			updates = u
+			return nil
+		}, onFlood)
 		if err != nil {
 			return err
 		}
@@ -270,7 +285,11 @@ func (s *Service) ReplaceMedia(ctx context.Context, req ReplaceRequest) error {
 			edit.SetEntities(entities)
 		}
 
-		if _, err := api.MessagesEditMessage(ctx, edit); err != nil {
+		onFlood := s.buildFloodLogger(req.ChatId, fileName)
+		if err := callWithFloodRetry(ctx, func() error {
+			_, err := api.MessagesEditMessage(ctx, edit)
+			return err
+		}, onFlood); err != nil {
 			return err
 		}
 
@@ -349,16 +368,9 @@ func formatCaptionPreview(caption string) string {
 	return string(runes[:maxRunes]) + "..."
 }
 
-// ListPosts returns the most recent posts in the channel.
+// ListPosts returns posts in the channel, optionally limited, walking history
+// from newest to oldest.
 func (s *Service) ListPosts(ctx context.Context, req ListPostsRequest) ([]PostInfo, error) {
-	limit := req.Limit
-	if limit <= 0 {
-		limit = 20
-	}
-	if limit > 200 {
-		limit = 200
-	}
-
 	var posts []PostInfo
 	err := s.run(ctx, func(ctx context.Context, api *tg.Client) error {
 		channel, err := s.resolveChat(ctx, api, req.ChatId)
@@ -366,36 +378,88 @@ func (s *Service) ListPosts(ctx context.Context, req ListPostsRequest) ([]PostIn
 			return err
 		}
 
-		history, err := api.MessagesGetHistory(ctx, &tg.MessagesGetHistoryRequest{
-			Peer:  channel.peer,
-			Limit: limit,
-		})
-		if err != nil {
-			return err
+		limit := req.Limit
+		chunkLimit := 100
+		if limit > 0 && limit < chunkLimit {
+			chunkLimit = limit
 		}
 
-		messages, err := collectMessages(history)
-		if err != nil {
-			return err
-		}
-
+		offsetID := 0
+		prevOffsetID := -1
 		filter := strings.ToLower(strings.TrimSpace(req.Search))
-		for _, msg := range messages {
-			caption := strings.TrimSpace(msg.Message)
-			if filter != "" && !strings.Contains(strings.ToLower(caption), filter) {
-				continue
+		totalFetched := 0
+
+		throttle := newThrottle(750 * time.Millisecond)
+		for {
+			if err := throttle.Wait(ctx); err != nil {
+				return err
 			}
 
-			posts = append(posts, PostInfo{
-				ID:        msg.ID,
-				Date:      time.Unix(int64(msg.Date), 0).UTC(),
-				MediaType: describeMedia(msg.Media),
-				Caption:   caption,
+			history, err := api.MessagesGetHistory(ctx, &tg.MessagesGetHistoryRequest{
+				Peer:      channel.peer,
+				Limit:     chunkLimit,
+				OffsetID:  offsetID,
+				AddOffset: 0,
 			})
-			if len(posts) >= limit {
+			if err != nil {
+				if wait, ok := tgerr.AsFloodWait(err); ok {
+					delay := wait + time.Second
+					if req.OnFloodWait != nil {
+						req.OnFloodWait(delay, totalFetched)
+					}
+					if err := sleepWithContext(ctx, delay); err != nil {
+						return err
+					}
+					continue
+				}
+				return err
+			}
+
+			messages, err := collectMessages(history)
+			if err != nil {
+				return err
+			}
+			if len(messages) == 0 {
 				break
 			}
+
+			lastID := messages[len(messages)-1].ID
+			if lastID == offsetID || lastID == prevOffsetID {
+				// Avoid infinite loops if the server returns the same page.
+				break
+			}
+			prevOffsetID = offsetID
+
+			totalFetched += len(messages)
+
+			for _, msg := range messages {
+				caption := strings.TrimSpace(msg.Message)
+				if filter != "" && !strings.Contains(strings.ToLower(caption), filter) {
+					continue
+				}
+
+				posts = append(posts, PostInfo{
+					ID:        msg.ID,
+					Date:      time.Unix(int64(msg.Date), 0).UTC(),
+					MediaType: describeMedia(msg.Media),
+					Caption:   caption,
+				})
+
+				if limit > 0 && len(posts) >= limit {
+					if req.OnBatch != nil {
+						req.OnBatch(totalFetched)
+					}
+					return nil
+				}
+			}
+
+			if req.OnBatch != nil {
+				req.OnBatch(totalFetched)
+			}
+
+			offsetID = lastID
 		}
+
 		return nil
 	})
 	return posts, err
@@ -424,6 +488,52 @@ func (s *Service) run(ctx context.Context, fn func(context.Context, *tg.Client) 
 	})
 }
 
+func sleepWithContext(ctx context.Context, d time.Duration) error {
+	if d <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+type throttle struct {
+	interval time.Duration
+	last     time.Time
+}
+
+func newThrottle(interval time.Duration) *throttle {
+	if interval <= 0 {
+		return &throttle{}
+	}
+	return &throttle{interval: interval}
+}
+
+func (t *throttle) Wait(ctx context.Context) error {
+	if t == nil || t.interval <= 0 {
+		return nil
+	}
+	now := time.Now()
+	if t.last.IsZero() {
+		t.last = now
+		return nil
+	}
+	sleepFor := t.interval - now.Sub(t.last)
+	if sleepFor > 0 {
+		if err := sleepWithContext(ctx, sleepFor); err != nil {
+			return err
+		}
+	}
+	t.last = time.Now()
+	return nil
+}
+
 func ensureDir(path string) error {
 	if path == "" {
 		return nil
@@ -436,6 +546,36 @@ func (s *Service) authenticator() auth.UserAuthenticator {
 		phone:    strings.TrimSpace(s.cfg.API.Phone),
 		password: strings.TrimSpace(s.cfg.API.Password),
 		prompter: s.prompter,
+	}
+}
+
+func (s *Service) buildFloodLogger(chatDisplay, fileName string) func(time.Duration) {
+	return func(delay time.Duration) {
+		out := s.io.out
+		if out == nil {
+			return
+		}
+		fmt.Fprintf(out, "\rRate limit hit while talking to %s (%s), waiting %s...", chatDisplay, fileName, delay.Round(time.Second))
+	}
+}
+
+func callWithFloodRetry(ctx context.Context, fn func() error, onFlood func(time.Duration)) error {
+	for {
+		err := fn()
+		if err == nil {
+			return nil
+		}
+		if delay, ok := tgerr.AsFloodWait(err); ok {
+			delay += time.Second
+			if onFlood != nil {
+				onFlood(delay)
+			}
+			if err := sleepWithContext(ctx, delay); err != nil {
+				return err
+			}
+			continue
+		}
+		return err
 	}
 }
 

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -20,12 +21,14 @@ func newPostsCommand() *cobra.Command {
 }
 
 func newPostsListCommand() *cobra.Command {
-	opts := &postsListOptions{limit: 20, pageSize: 10}
+	opts := &postsListOptions{limit: 0, pageSize: 10}
 
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List channel posts to help with reuploads",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			out := cmd.OutOrStdout()
+
 			cfg, err := configFromContext(cmd)
 			if err != nil {
 				return err
@@ -43,19 +46,28 @@ func newPostsListCommand() *cobra.Command {
 				ChatId: chat,
 				Limit:  opts.limit,
 				Search: opts.search,
+				OnBatch: func(total int) {
+					fmt.Fprintf(out, "\rLoading posts... %d fetched", total)
+				},
+				OnFloodWait: func(delay time.Duration, total int) {
+					fmt.Fprintf(out, "\rHit rate limit, pausing %s after %d fetched...", delay.Round(time.Second), total)
+				},
 			}
 
+			fmt.Fprintln(out, "Loading posts...")
 			svc := telegram.NewService(cfg, telegram.WithIO(cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr()))
 			posts, err := svc.ListPosts(cmd.Context(), req)
 			if err != nil {
 				return err
 			}
+			fmt.Fprintln(out)
 
-			out := cmd.OutOrStdout()
 			if len(posts) == 0 {
 				fmt.Fprintln(out, "No posts found")
 				return nil
 			}
+
+			fmt.Fprintf(out, "Loaded %d posts\n\n", len(posts))
 
 			pageSize := opts.pageSize
 			if err := postslist.Display(cmd.InOrStdin(), out, chat, opts.search, posts, pageSize); err != nil {
@@ -65,7 +77,7 @@ func newPostsListCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().IntVarP(&opts.limit, "limit", "l", opts.limit, "Number of entries to fetch")
+	cmd.Flags().IntVarP(&opts.limit, "limit", "l", opts.limit, "Number of entries to fetch (0 = all)")
 	cmd.Flags().StringVar(&opts.search, "search", "", "Filter posts containing this substring")
 	cmd.Flags().IntVar(&opts.pageSize, "page-size", opts.pageSize, "Entries per page in the viewer")
 
