@@ -20,6 +20,7 @@ import (
 type mediaRequest struct {
 	FilePath  string
 	ThumbPath string
+	Progress  uploader.Progress
 }
 
 type mediaKind int
@@ -41,6 +42,9 @@ type mediaMetadata struct {
 
 func (s *Service) prepareMedia(ctx context.Context, api *tg.Client, req mediaRequest) (tg.InputMediaClass, error) {
 	upload := uploader.NewUploader(api)
+	if req.Progress != nil {
+		upload = upload.WithProgress(req.Progress)
+	}
 
 	file, err := upload.FromPath(ctx, req.FilePath)
 	if err != nil {
@@ -49,7 +53,8 @@ func (s *Service) prepareMedia(ctx context.Context, api *tg.Client, req mediaReq
 
 	var thumb tg.InputFileClass
 	if strings.TrimSpace(req.ThumbPath) != "" {
-		thumb, err = upload.FromPath(ctx, req.ThumbPath)
+		thumbUploader := uploader.NewUploader(api)
+		thumb, err = thumbUploader.FromPath(ctx, req.ThumbPath)
 		if err != nil {
 			return nil, fmt.Errorf("upload thumbnail: %w", err)
 		}

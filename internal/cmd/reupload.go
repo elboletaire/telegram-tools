@@ -51,14 +51,21 @@ func newReuploadCommand() *cobra.Command {
 				}
 			}
 
+			captionProvided := cmd.Flags().Changed("caption")
+			if captionProvided && opts.clearCaption {
+				return errors.New("--caption and --clear-caption may not be used together")
+			}
+
 			svc := telegram.NewService(cfg, telegram.WithIO(cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr()))
 			return svc.ReplaceMedia(cmd.Context(), telegram.ReplaceRequest{
-				ChatId:    chat,
-				PostId:    opts.postID,
-				FilePath:  filePath,
-				ThumbPath: thumb,
-				Caption:   opts.caption,
-				Silent:    opts.silent,
+				ChatId:       chat,
+				PostId:       opts.postID,
+				FilePath:     filePath,
+				ThumbPath:    thumb,
+				Caption:      opts.caption,
+				CaptionSet:   captionProvided,
+				ClearCaption: opts.clearCaption,
+				Silent:       opts.silent,
 			})
 		},
 	}
@@ -66,14 +73,16 @@ func newReuploadCommand() *cobra.Command {
 	cmd.Flags().IntVar(&opts.postID, "post-id", 0, "Message identifier to replace")
 	cmd.Flags().StringVar(&opts.caption, "caption", "", "Optional new caption")
 	cmd.Flags().StringVar(&opts.thumb, "thumb", "", "New thumbnail for this media")
+	cmd.Flags().BoolVar(&opts.clearCaption, "clear-caption", false, "Remove the caption entirely")
 	cmd.Flags().BoolVar(&opts.silent, "silent", false, "Edit message silently if possible")
 
 	return cmd
 }
 
 type reuploadOptions struct {
-	postID  int
-	caption string
-	thumb   string
-	silent  bool
+	postID       int
+	caption      string
+	thumb        string
+	silent       bool
+	clearCaption bool
 }

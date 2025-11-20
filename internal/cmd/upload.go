@@ -46,13 +46,16 @@ func newUploadCommand() *cobra.Command {
 				}
 			}
 
+			captionProvided := cmd.Flags().Changed("caption")
+
 			svc := telegram.NewService(cfg, telegram.WithIO(cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr()))
 			return svc.Upload(cmd.Context(), telegram.UploadRequest{
-				ChatId:    chat,
-				FilePath:  filePath,
-				ThumbPath: thumb,
-				Caption:   opts.caption,
-				Silent:    opts.silent,
+				ChatId:     chat,
+				FilePath:   filePath,
+				ThumbPath:  thumb,
+				Caption:    opts.caption,
+				CaptionSet: captionProvided,
+				Silent:     opts.silent,
 			})
 		},
 	}

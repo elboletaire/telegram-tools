@@ -57,6 +57,11 @@ type ioStreams struct {
 	err io.Writer
 }
 
+const (
+	uploadActionLabel   = "↗️ Uploading"
+	reuploadActionLabel = "🔄️ Reuploading"
+)
+
 // NewService builds a Service with the loaded configuration.
 func NewService(cfg *config.Config, opts ...ServiceOption) *Service {
 	s := &Service{
@@ -77,21 +82,24 @@ func NewService(cfg *config.Config, opts ...ServiceOption) *Service {
 
 // UploadRequest represents the data needed to push a new file.
 type UploadRequest struct {
-	ChatId    string
-	FilePath  string
-	ThumbPath string
-	Caption   string
-	Silent    bool
+	ChatId     string
+	FilePath   string
+	ThumbPath  string
+	Caption    string
+	CaptionSet bool
+	Silent     bool
 }
 
 // ReplaceRequest is used to edit the media content of a message.
 type ReplaceRequest struct {
-	ChatId    string
-	PostId    int
-	FilePath  string
-	ThumbPath string
-	Caption   string
-	Silent    bool
+	ChatId       string
+	PostId       int
+	FilePath     string
+	ThumbPath    string
+	Caption      string
+	CaptionSet   bool
+	ClearCaption bool
+	Silent       bool
 }
 
 // ListPostsRequest describes pagination/search filters.
@@ -118,13 +126,34 @@ func (s *Service) Upload(ctx context.Context, req UploadRequest) error {
 		return fmt.Errorf("channel is required")
 	}
 
-	return s.run(ctx, func(ctx context.Context, api *tg.Client) error {
+	fileName := filepath.Base(req.FilePath)
+	var thumbName string
+	if strings.TrimSpace(req.ThumbPath) != "" {
+		thumbName = filepath.Base(req.ThumbPath)
+	}
+	captionPreview := ""
+	if req.CaptionSet {
+		captionPreview = formatCaptionPreview(req.Caption)
+	}
+	progressUI := newUploadProgressDisplay(s.io.out, uploadActionLabel, fileName, thumbName, captionPreview, false)
+	if progressUI != nil {
+		defer progressUI.Wait()
+	} else {
+		logStaticStart(s.io.out, uploadActionLabel, fileName, thumbName, captionPreview, false)
+	}
+
+	var successMessage string
+	err := s.run(ctx, func(ctx context.Context, api *tg.Client) error {
 		channel, err := s.resolveChat(ctx, api, req.ChatId)
 		if err != nil {
 			return err
 		}
 
-		media, err := s.prepareMedia(ctx, api, mediaRequest{FilePath: req.FilePath, ThumbPath: req.ThumbPath})
+		media, err := s.prepareMedia(ctx, api, mediaRequest{
+			FilePath:  req.FilePath,
+			ThumbPath: req.ThumbPath,
+			Progress:  progressUI,
+		})
 		if err != nil {
 			return err
 		}
@@ -148,12 +177,29 @@ func (s *Service) Upload(ctx context.Context, req UploadRequest) error {
 		}
 
 		if id, ok := extractMessageID(updates); ok {
-			fmt.Fprintf(s.io.out, "Uploaded message #%d to %s\n", id, channel.display)
+			successMessage = fmt.Sprintf("%s uploaded to %s as message #%d!", fileName, channel.display, id)
 		} else {
-			fmt.Fprintf(s.io.out, "Upload to %s completed\n", channel.display)
+			successMessage = fmt.Sprintf("%s uploaded to %s!", fileName, channel.display)
 		}
 		return nil
 	})
+
+	if err != nil {
+		if progressUI != nil {
+			progressUI.Fail(err)
+		} else {
+			logStaticFailure(s.io.out, err)
+		}
+		return err
+	}
+
+	if progressUI != nil {
+		progressUI.Success(successMessage)
+	} else {
+		logStaticSuccess(s.io.out, successMessage)
+	}
+
+	return nil
 }
 
 // ReplaceMedia edits an existing message with new media.
@@ -168,7 +214,24 @@ func (s *Service) ReplaceMedia(ctx context.Context, req ReplaceRequest) error {
 		return fmt.Errorf("channel is required")
 	}
 
-	return s.run(ctx, func(ctx context.Context, api *tg.Client) error {
+	fileName := filepath.Base(req.FilePath)
+	var thumbName string
+	if strings.TrimSpace(req.ThumbPath) != "" {
+		thumbName = filepath.Base(req.ThumbPath)
+	}
+	captionPreview := ""
+	if req.CaptionSet {
+		captionPreview = formatCaptionPreview(req.Caption)
+	}
+	progressUI := newUploadProgressDisplay(s.io.out, reuploadActionLabel, fileName, thumbName, captionPreview, req.ClearCaption)
+	if progressUI != nil {
+		defer progressUI.Wait()
+	} else {
+		logStaticStart(s.io.out, reuploadActionLabel, fileName, thumbName, captionPreview, req.ClearCaption)
+	}
+
+	var successMessage string
+	err := s.run(ctx, func(ctx context.Context, api *tg.Client) error {
 		channel, err := s.resolveChat(ctx, api, req.ChatId)
 		if err != nil {
 			return err
@@ -176,16 +239,22 @@ func (s *Service) ReplaceMedia(ctx context.Context, req ReplaceRequest) error {
 
 		caption := req.Caption
 		var entities []tg.MessageEntityClass
-		if strings.TrimSpace(caption) == "" {
+		if !req.CaptionSet && !req.ClearCaption {
 			original, err := s.fetchMessage(ctx, api, channel, req.PostId)
 			if err != nil {
 				return err
 			}
 			caption = original.Message
 			entities = original.Entities
+		} else if req.ClearCaption {
+			caption = ""
 		}
 
-		media, err := s.prepareMedia(ctx, api, mediaRequest{FilePath: req.FilePath, ThumbPath: req.ThumbPath})
+		media, err := s.prepareMedia(ctx, api, mediaRequest{
+			FilePath:  req.FilePath,
+			ThumbPath: req.ThumbPath,
+			Progress:  progressUI,
+		})
 		if err != nil {
 			return err
 		}
@@ -202,9 +271,79 @@ func (s *Service) ReplaceMedia(ctx context.Context, req ReplaceRequest) error {
 			return err
 		}
 
-		fmt.Fprintf(s.io.out, "Reuploaded message #%d in %s\n", req.PostId, channel.display)
+		successMessage = fmt.Sprintf("%s replaced message #%d in %s!", fileName, req.PostId, channel.display)
 		return nil
 	})
+
+	if err != nil {
+		if progressUI != nil {
+			progressUI.Fail(err)
+		} else {
+			logStaticFailure(s.io.out, err)
+		}
+		return err
+	}
+
+	if progressUI != nil {
+		progressUI.Success(successMessage)
+	} else {
+		logStaticSuccess(s.io.out, successMessage)
+	}
+
+	return nil
+}
+
+func logStaticStart(out io.Writer, actionLabel, fileName, thumbName, captionPreview string, removingCaption bool) {
+	if out == nil {
+		return
+	}
+	fmt.Fprintf(out, "%s %s\n", actionLabel, fileName)
+	if strings.TrimSpace(thumbName) != "" {
+		fmt.Fprintf(out, "🖼️ Will use custom thumbnail %s\n", thumbName)
+	}
+	logStaticCaption(out, captionPreview, removingCaption)
+}
+
+func logStaticSuccess(out io.Writer, message string) {
+	if out == nil || strings.TrimSpace(message) == "" {
+		return
+	}
+	fmt.Fprintf(out, "✅ %s\n", message)
+}
+
+func logStaticFailure(out io.Writer, err error) {
+	if out == nil || err == nil {
+		return
+	}
+	fmt.Fprintf(out, "❌ %v\n", err)
+}
+
+func logStaticCaption(out io.Writer, caption string, removing bool) {
+	if out == nil {
+		return
+	}
+	if removing {
+		fmt.Fprintln(out, "📝 Removing caption")
+		return
+	}
+	preview := strings.TrimSpace(caption)
+	if preview == "" {
+		return
+	}
+	fmt.Fprintf(out, "📝 Setting caption to %s\n", preview)
+}
+
+func formatCaptionPreview(caption string) string {
+	const maxRunes = 80
+	trimmed := strings.TrimSpace(caption)
+	if trimmed == "" {
+		return ""
+	}
+	runes := []rune(trimmed)
+	if len(runes) <= maxRunes {
+		return trimmed
+	}
+	return string(runes[:maxRunes]) + "..."
 }
 
 // ListPosts returns the most recent posts in the channel.
