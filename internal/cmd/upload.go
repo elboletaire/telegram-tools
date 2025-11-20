@@ -1,7 +1,11 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -29,6 +33,7 @@ func newUploadCommand() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("expand file path: %w", err)
 			}
+			thumbProvided := cmd.Flags().Changed("thumb")
 
 			chat, err := cfg.ResolveChat("")
 			if err != nil {
@@ -36,6 +41,12 @@ func newUploadCommand() *cobra.Command {
 			}
 
 			thumb := opts.thumb
+			if !thumbProvided {
+				thumb, err = findSiblingThumbnail(filePath)
+				if err != nil {
+					return err
+				}
+			}
 			if thumb == "" {
 				thumb = cfg.Defaults.Thumb
 			}
@@ -71,4 +82,28 @@ type uploadOptions struct {
 	caption string
 	thumb   string
 	silent  bool
+}
+
+func findSiblingThumbnail(filePath string) (string, error) {
+	dir := filepath.Dir(filePath)
+	name := filepath.Base(filePath)
+	ext := filepath.Ext(name)
+	base := strings.TrimSuffix(name, ext)
+	candidates := []string{
+		filepath.Join(dir, base+"-thumb.jpg"),
+		filepath.Join(dir, base+"-thumb.jpeg"),
+	}
+
+	for _, candidate := range candidates {
+		_, err := os.Stat(candidate)
+		switch {
+		case err == nil:
+			return candidate, nil
+		case errors.Is(err, os.ErrNotExist):
+			continue
+		default:
+			return "", fmt.Errorf("checking thumbnail %q: %w", candidate, err)
+		}
+	}
+	return "", nil
 }
