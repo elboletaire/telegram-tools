@@ -2,11 +2,11 @@ package cmd
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/elboletaire/ttools/internal/telegram"
+	"github.com/elboletaire/ttools/internal/ui/postslist"
 )
 
 func newPostsCommand() *cobra.Command {
@@ -20,7 +20,7 @@ func newPostsCommand() *cobra.Command {
 }
 
 func newPostsListCommand() *cobra.Command {
-	opts := &postsListOptions{limit: 20}
+	opts := &postsListOptions{limit: 20, pageSize: 10}
 
 	cmd := &cobra.Command{
 		Use:   "list",
@@ -57,9 +57,9 @@ func newPostsListCommand() *cobra.Command {
 				return nil
 			}
 
-			fmt.Fprintf(out, "Found %d posts in %s\n", len(posts), chat)
-			for _, post := range posts {
-				fmt.Fprintf(out, "#%d %s [%s] %s\n", post.ID, post.Date.Format(time.RFC3339), post.MediaType, post.Caption)
+			pageSize := opts.pageSize
+			if err := postslist.Display(cmd.InOrStdin(), out, chat, opts.search, posts, pageSize); err != nil {
+				return fmt.Errorf("render list: %w", err)
 			}
 			return nil
 		},
@@ -67,11 +67,13 @@ func newPostsListCommand() *cobra.Command {
 
 	cmd.Flags().IntVarP(&opts.limit, "limit", "l", opts.limit, "Number of entries to fetch")
 	cmd.Flags().StringVar(&opts.search, "search", "", "Filter posts containing this substring")
+	cmd.Flags().IntVar(&opts.pageSize, "page-size", opts.pageSize, "Entries per page in the viewer")
 
 	return cmd
 }
 
 type postsListOptions struct {
-	limit  int
-	search string
+	limit    int
+	search   string
+	pageSize int
 }
