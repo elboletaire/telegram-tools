@@ -34,6 +34,7 @@ func newUploadCommand() *cobra.Command {
 				return fmt.Errorf("expand file path: %w", err)
 			}
 			thumbProvided := cmd.Flags().Changed("thumb")
+			autoThumbFound := false
 
 			chat, err := cfg.ResolveChat("")
 			if err != nil {
@@ -42,7 +43,7 @@ func newUploadCommand() *cobra.Command {
 
 			thumb := opts.thumb
 			if !thumbProvided {
-				thumb, err = findSiblingThumbnail(filePath)
+				thumb, autoThumbFound, err = findSiblingThumbnail(filePath)
 				if err != nil {
 					return err
 				}
@@ -54,6 +55,9 @@ func newUploadCommand() *cobra.Command {
 				thumb, err = config.ExpandPath(thumb)
 				if err != nil {
 					return fmt.Errorf("expand thumb: %w", err)
+				}
+				if autoThumbFound {
+					fmt.Fprintf(cmd.OutOrStdout(), "🖼️ Using detected thumbnail %s\n", filepath.Base(thumb))
 				}
 			}
 
@@ -84,7 +88,7 @@ type uploadOptions struct {
 	silent  bool
 }
 
-func findSiblingThumbnail(filePath string) (string, error) {
+func findSiblingThumbnail(filePath string) (string, bool, error) {
 	dir := filepath.Dir(filePath)
 	name := filepath.Base(filePath)
 	ext := filepath.Ext(name)
@@ -98,12 +102,12 @@ func findSiblingThumbnail(filePath string) (string, error) {
 		_, err := os.Stat(candidate)
 		switch {
 		case err == nil:
-			return candidate, nil
+			return candidate, true, nil
 		case errors.Is(err, os.ErrNotExist):
 			continue
 		default:
-			return "", fmt.Errorf("checking thumbnail %q: %w", candidate, err)
+			return "", false, fmt.Errorf("checking thumbnail %q: %w", candidate, err)
 		}
 	}
-	return "", nil
+	return "", false, nil
 }
