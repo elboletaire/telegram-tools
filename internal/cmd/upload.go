@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -69,7 +70,7 @@ func newUploadCommand() *cobra.Command {
 			}
 
 			svc := telegram.NewService(cfg, telegram.WithIO(cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr()))
-			for _, arg := range args {
+			for i, arg := range args {
 				filePath, err := config.ExpandPath(arg)
 				if err != nil {
 					return fmt.Errorf("expand file path %q: %w", arg, err)
@@ -113,6 +114,14 @@ func newUploadCommand() *cobra.Command {
 					Silent:     opts.silent,
 				}); err != nil {
 					return err
+				}
+
+				if i < len(args)-1 {
+					select {
+					case <-time.After(1100 * time.Millisecond):
+					case <-cmd.Context().Done():
+						return cmd.Context().Err()
+					}
 				}
 			}
 
