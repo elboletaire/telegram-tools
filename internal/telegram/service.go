@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/gotd/td/crypto"
 	"github.com/gotd/td/session"
 	"github.com/gotd/td/telegram"
@@ -210,6 +211,11 @@ func (s *Service) Upload(ctx context.Context, req UploadRequest) error {
 
 	if progressUI != nil {
 		progressUI.Success(successMessage)
+		if s.io.out != nil {
+			if line := renderStyledSuccess(successMessage, fileName); line != "" {
+				fmt.Fprintln(s.io.out, line)
+			}
+		}
 	} else {
 		logStaticSuccess(s.io.out, successMessage)
 	}
@@ -366,6 +372,23 @@ func formatCaptionPreview(caption string) string {
 		return trimmed
 	}
 	return string(runes[:maxRunes]) + "..."
+}
+
+var successEmphasisStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("84")).Bold(true)
+
+func renderStyledSuccess(message, fileName string) string {
+	msg := strings.TrimSpace(message)
+	if msg == "" {
+		return ""
+	}
+	styled := msg
+	if fileName != "" {
+		styled = strings.ReplaceAll(styled, fileName, successEmphasisStyle.Render(fileName))
+	}
+	if strings.Contains(styled, "uploaded") {
+		styled = strings.Replace(styled, "uploaded", successEmphasisStyle.Render("uploaded"), 1)
+	}
+	return "✅ " + styled
 }
 
 // ListPosts returns posts in the channel, optionally limited, walking history
