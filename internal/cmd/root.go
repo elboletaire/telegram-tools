@@ -60,6 +60,7 @@ func newRootCommand() *cobra.Command {
 	root.AddCommand(newUploadCommand())
 	root.AddCommand(newReuploadCommand())
 	root.AddCommand(newPostsCommand())
+	root.AddCommand(newChatsCommand())
 
 	root.SilenceUsage = true
 	root.SilenceErrors = true

@@ -124,6 +124,29 @@ type PostInfo struct {
 	Caption   string
 }
 
+// ListChatsRequest describes pagination/search filters for chats.
+type ListChatsRequest struct {
+	Limit  int
+	Search string
+	// OnBatch, if set, is called after each batch is processed with the total
+	// number of chats fetched so far (before filtering).
+	OnBatch func(total int)
+	// OnFloodWait, if set, is called before waiting on Telegram FLOOD_WAIT.
+	OnFloodWait func(delay time.Duration, total int)
+}
+
+// ChatInfo contains the minimal data required for CLI rendering of chats.
+type ChatInfo struct {
+	ID           int64
+	AccessHash   int64
+	Title        string
+	Username     string
+	Type         string
+	Participants int
+	Unread       int
+	LastDate     time.Time
+}
+
 // Upload uploads a new file to a channel.
 func (s *Service) Upload(ctx context.Context, req UploadRequest) error {
 	if strings.TrimSpace(req.FilePath) == "" {
@@ -486,6 +509,110 @@ func (s *Service) ListPosts(ctx context.Context, req ListPostsRequest) ([]PostIn
 		return nil
 	})
 	return posts, err
+}
+
+// ListChats returns chats/channels the user is part of, optionally limited and filtered.
+func (s *Service) ListChats(ctx context.Context, req ListChatsRequest) ([]ChatInfo, error) {
+	var chats []ChatInfo
+	err := s.run(ctx, func(ctx context.Context, api *tg.Client) error {
+		offsetPeer := tg.InputPeerClass(&tg.InputPeerEmpty{})
+		offsetID := 0
+		offsetDate := 0
+		filter := strings.ToLower(strings.TrimSpace(req.Search))
+		totalFetched := 0
+
+		throttle := newThrottle(750 * time.Millisecond)
+		for {
+			if err := throttle.Wait(ctx); err != nil {
+				return err
+			}
+
+			resp, err := api.MessagesGetDialogs(ctx, &tg.MessagesGetDialogsRequest{
+				OffsetDate: offsetDate,
+				OffsetID:   offsetID,
+				OffsetPeer: offsetPeer,
+				Limit:      100,
+				Hash:       0,
+			})
+			if err != nil {
+				if wait, ok := tgerr.AsFloodWait(err); ok {
+					delay := wait + time.Second
+					if req.OnFloodWait != nil {
+						req.OnFloodWait(delay, totalFetched)
+					}
+					if err := sleepWithContext(ctx, delay); err != nil {
+						return err
+					}
+					continue
+				}
+				return err
+			}
+
+			batch, err := newDialogBatch(resp)
+			if err != nil {
+				return err
+			}
+
+			if len(batch.dialogs) == 0 {
+				break
+			}
+
+			totalFetched += len(batch.dialogs)
+
+			// Extract chat info from dialogs
+			for _, d := range batch.dialogs {
+				dialog, ok := d.(*tg.Dialog)
+				if !ok {
+					continue
+				}
+
+				chatInfo := extractChatInfo(dialog, batch.chats, batch.messages)
+				if chatInfo == nil {
+					continue
+				}
+
+				// Apply search filter
+				if filter != "" {
+					titleMatch := strings.Contains(strings.ToLower(chatInfo.Title), filter)
+					usernameMatch := strings.Contains(strings.ToLower(chatInfo.Username), filter)
+					if !titleMatch && !usernameMatch {
+						continue
+					}
+				}
+
+				chats = append(chats, *chatInfo)
+
+				if req.Limit > 0 && len(chats) >= req.Limit {
+					if req.OnBatch != nil {
+						req.OnBatch(totalFetched)
+					}
+					return nil
+				}
+			}
+
+			if req.OnBatch != nil {
+				req.OnBatch(totalFetched)
+			}
+
+			// Set up pagination for next batch
+			last, ok := batch.dialogs[len(batch.dialogs)-1].(*tg.Dialog)
+			if !ok {
+				break
+			}
+			offsetID = last.TopMessage
+			offsetDate = findMessageDate(batch.messages, last.TopMessage)
+			if offsetDate == 0 {
+				offsetDate = int(time.Now().Unix())
+			}
+			offsetPeer = buildInputPeer(last.Peer, batch.chats)
+			if offsetPeer == nil {
+				break
+			}
+		}
+
+		return nil
+	})
+	return chats, err
 }
 
 func (s *Service) run(ctx context.Context, fn func(context.Context, *tg.Client) error) error {
