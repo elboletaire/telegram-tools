@@ -30,18 +30,26 @@ func newChatsCommand() *cobra.Command {
 	}
 
 	// Shared flags available to all subcommands
-	cmd.PersistentFlags().IntVarP(&sharedOpts.limit, "limit", "l", sharedOpts.limit, "Number of entries to fetch (0 = all)")
+	cmd.PersistentFlags().IntVarP(&sharedOpts.limit, "limit", "l", sharedOpts.limit, "Number of chats to fetch from API (0 = all)")
 	cmd.PersistentFlags().IntVar(&sharedOpts.pageSize, "page-size", sharedOpts.pageSize, "Entries per page in the viewer")
 
 	cmd.AddCommand(newChatsListCommand(sharedOpts))
+	cmd.AddCommand(newChatsFindCommand(sharedOpts))
 
 	return cmd
 }
 
-// fetchChatsRequest holds the parameters for fetching chats
+// fetchChatsRequest holds the parameters for fetching and filtering chats
 type fetchChatsRequest struct {
-	Limit  int
-	Search string
+	Limit         int
+	Search        string
+	TypeFilter    string
+	UnreadOnly    bool
+	HasUsername   bool
+	MinMembers    int
+	MaxMembers    int
+	ActiveSince   time.Duration
+	InactiveSince time.Duration
 }
 
 // fetchChatsWithProgress fetches chats from Telegram with progress feedback
@@ -66,5 +74,70 @@ func fetchChatsWithProgress(ctx context.Context, cfg *config.Config, out io.Writ
 	}
 	fmt.Fprintln(out)
 
+	// Apply additional filters if specified
+	if hasAdditionalFilters(req) {
+		chats = filterChats(chats, req)
+	}
+
 	return chats, nil
+}
+
+// hasAdditionalFilters checks if any additional filters are set
+func hasAdditionalFilters(req fetchChatsRequest) bool {
+	return req.TypeFilter != "" ||
+		req.UnreadOnly ||
+		req.HasUsername ||
+		req.MinMembers > 0 ||
+		req.MaxMembers > 0 ||
+		req.ActiveSince > 0 ||
+		req.InactiveSince > 0
+}
+
+// filterChats filters chats by various criteria
+func filterChats(chats []telegram.ChatInfo, req fetchChatsRequest) []telegram.ChatInfo {
+	now := time.Now()
+	filtered := make([]telegram.ChatInfo, 0, len(chats))
+
+	for _, chat := range chats {
+		// Type filter
+		if req.TypeFilter != "" && chat.Type != req.TypeFilter {
+			continue
+		}
+
+		// Unread filter
+		if req.UnreadOnly && chat.Unread == 0 {
+			continue
+		}
+
+		// Username filter
+		if req.HasUsername && chat.Username == "" {
+			continue
+		}
+
+		// Member count filters
+		if req.MinMembers > 0 && chat.Participants < req.MinMembers {
+			continue
+		}
+		if req.MaxMembers > 0 && chat.Participants > req.MaxMembers {
+			continue
+		}
+
+		// Activity filters
+		if req.ActiveSince > 0 {
+			activeThreshold := now.Add(-req.ActiveSince)
+			if chat.LastDate.IsZero() || chat.LastDate.Before(activeThreshold) {
+				continue
+			}
+		}
+		if req.InactiveSince > 0 {
+			inactiveThreshold := now.Add(-req.InactiveSince)
+			if !chat.LastDate.IsZero() && chat.LastDate.After(inactiveThreshold) {
+				continue
+			}
+		}
+
+		filtered = append(filtered, chat)
+	}
+
+	return filtered
 }

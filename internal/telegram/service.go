@@ -478,6 +478,11 @@ func (s *Service) ListPosts(ctx context.Context, req ListPostsRequest) ([]PostIn
 
 			totalFetched += len(messages)
 
+			// Stop fetching if we've reached the API fetch limit
+			if limit > 0 && totalFetched >= limit {
+				break
+			}
+
 			for _, msg := range messages {
 				caption := strings.TrimSpace(msg.Message)
 				if filter != "" && !strings.Contains(strings.ToLower(caption), filter) {
@@ -490,13 +495,6 @@ func (s *Service) ListPosts(ctx context.Context, req ListPostsRequest) ([]PostIn
 					MediaType: describeMedia(msg.Media),
 					Caption:   caption,
 				})
-
-				if limit > 0 && len(posts) >= limit {
-					if req.OnBatch != nil {
-						req.OnBatch(totalFetched)
-					}
-					return nil
-				}
 			}
 
 			if req.OnBatch != nil {
@@ -520,6 +518,13 @@ func (s *Service) ListChats(ctx context.Context, req ListChatsRequest) ([]ChatIn
 		offsetDate := 0
 		filter := strings.ToLower(strings.TrimSpace(req.Search))
 		totalFetched := 0
+		seen := make(map[int64]bool) // Track seen chat IDs to avoid duplicates
+
+		// Calculate chunk limit based on requested limit
+		chunkLimit := 100
+		if req.Limit > 0 && req.Limit < chunkLimit {
+			chunkLimit = req.Limit
+		}
 
 		throttle := newThrottle(750 * time.Millisecond)
 		for {
@@ -531,7 +536,7 @@ func (s *Service) ListChats(ctx context.Context, req ListChatsRequest) ([]ChatIn
 				OffsetDate: offsetDate,
 				OffsetID:   offsetID,
 				OffsetPeer: offsetPeer,
-				Limit:      100,
+				Limit:      chunkLimit,
 				Hash:       0,
 			})
 			if err != nil {
@@ -559,6 +564,11 @@ func (s *Service) ListChats(ctx context.Context, req ListChatsRequest) ([]ChatIn
 
 			totalFetched += len(batch.dialogs)
 
+			// Stop fetching if we've reached the API fetch limit
+			if req.Limit > 0 && totalFetched >= req.Limit {
+				break
+			}
+
 			// Extract chat info from dialogs
 			for _, d := range batch.dialogs {
 				dialog, ok := d.(*tg.Dialog)
@@ -580,14 +590,13 @@ func (s *Service) ListChats(ctx context.Context, req ListChatsRequest) ([]ChatIn
 					}
 				}
 
-				chats = append(chats, *chatInfo)
-
-				if req.Limit > 0 && len(chats) >= req.Limit {
-					if req.OnBatch != nil {
-						req.OnBatch(totalFetched)
-					}
-					return nil
+				// Skip if we've already seen this chat (avoid duplicates)
+				if seen[chatInfo.ID] {
+					continue
 				}
+				seen[chatInfo.ID] = true
+
+				chats = append(chats, *chatInfo)
 			}
 
 			if req.OnBatch != nil {

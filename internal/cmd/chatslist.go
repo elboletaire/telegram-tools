@@ -63,6 +63,18 @@ Examples:
 
 			if len(chats) == 0 {
 				fmt.Fprintln(out, "No chats found")
+				fmt.Fprintln(out, "\nTips to improve your search:")
+
+				// Suggest increasing limit if it's set and relatively small
+				if sharedOpts.limit > 0 && sharedOpts.limit < 500 {
+					fmt.Fprintf(out, "  • Try increasing --limit (currently %d, try 500 or more for better coverage)\n", sharedOpts.limit)
+				}
+
+				// Suggest removing search filter if set
+				if opts.search != "" {
+					fmt.Fprintf(out, "  • Try a different --search term (currently: %q)\n", opts.search)
+				}
+
 				return nil
 			}
 

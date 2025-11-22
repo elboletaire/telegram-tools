@@ -30,7 +30,7 @@ func newPostsCommand() *cobra.Command {
 	}
 
 	// Shared flags available to all subcommands
-	cmd.PersistentFlags().IntVarP(&sharedOpts.limit, "limit", "l", sharedOpts.limit, "Number of entries to fetch (0 = all)")
+	cmd.PersistentFlags().IntVarP(&sharedOpts.limit, "limit", "l", sharedOpts.limit, "Number of posts to fetch from API (0 = all)")
 	cmd.PersistentFlags().IntVar(&sharedOpts.pageSize, "page-size", sharedOpts.pageSize, "Entries per page in the viewer")
 
 	cmd.AddCommand(newPostsListCommand(sharedOpts))
