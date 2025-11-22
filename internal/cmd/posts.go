@@ -35,6 +35,7 @@ func newPostsCommand() *cobra.Command {
 
 	cmd.AddCommand(newPostsListCommand(sharedOpts))
 	cmd.AddCommand(newPostsFindCommand(sharedOpts))
+	cmd.AddCommand(newPostsNewCommand(sharedOpts))
 
 	return cmd
 }

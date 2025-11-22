@@ -124,6 +124,14 @@ type PostInfo struct {
 	Caption   string
 }
 
+// SendMessageRequest represents a text message to send.
+type SendMessageRequest struct {
+	ChatId    string
+	Message   string
+	ParseMode string // "MarkdownV2", "HTML", or "" for plain text
+	Silent    bool
+}
+
 // ListChatsRequest describes pagination/search filters for chats.
 type ListChatsRequest struct {
 	Limit  int
@@ -244,6 +252,77 @@ func (s *Service) Upload(ctx context.Context, req UploadRequest) error {
 	}
 
 	return nil
+}
+
+// SendMessage sends a text message to a channel.
+func (s *Service) SendMessage(ctx context.Context, req SendMessageRequest) (int, error) {
+	if strings.TrimSpace(req.Message) == "" {
+		return 0, fmt.Errorf("message is required")
+	}
+	if strings.TrimSpace(req.ChatId) == "" {
+		return 0, fmt.Errorf("channel is required")
+	}
+
+	var messageID int
+	err := s.run(ctx, func(ctx context.Context, api *tg.Client) error {
+		channel, err := s.resolveChat(ctx, api, req.ChatId)
+		if err != nil {
+			return err
+		}
+
+		message := req.Message
+		var entities []tg.MessageEntityClass
+
+		// Parse markdown if requested
+		if req.ParseMode == "MarkdownV2" {
+			parsedText, parsedEntities, err := ParseMarkdownV2(message)
+			if err != nil {
+				return fmt.Errorf("parse markdown: %w", err)
+			}
+			message = parsedText
+			entities = parsedEntities
+		}
+		// Note: HTML parsing would require a different parser
+		// For now, HTML mode will send the raw HTML as plain text with no entities
+
+		randomID, err := crypto.RandInt64(crypto.DefaultRand())
+		if err != nil {
+			return fmt.Errorf("generate random id: %w", err)
+		}
+
+		send := &tg.MessagesSendMessageRequest{
+			Peer:     channel.peer,
+			Message:  message,
+			RandomID: randomID,
+		}
+		send.SetSilent(req.Silent)
+
+		// Only set entities if we have any (for markdown mode)
+		if len(entities) > 0 {
+			send.Entities = entities
+		}
+
+		var updates tg.UpdatesClass
+		onFlood := s.buildFloodLogger(req.ChatId, "message")
+		err = callWithFloodRetry(ctx, func() error {
+			u, err := api.MessagesSendMessage(ctx, send)
+			if err != nil {
+				return err
+			}
+			updates = u
+			return nil
+		}, onFlood)
+		if err != nil {
+			return err
+		}
+
+		if id, ok := extractMessageID(updates); ok {
+			messageID = id
+		}
+		return nil
+	})
+
+	return messageID, err
 }
 
 // ReplaceMedia edits an existing message with new media.
