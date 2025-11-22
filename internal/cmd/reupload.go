@@ -3,7 +3,6 @@ package cmd
 import (
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/spf13/cobra"
 
@@ -41,24 +40,24 @@ func newReuploadCommand() *cobra.Command {
 			svc := telegram.NewService(cfg, telegram.WithIO(cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr()))
 
 			if opts.postID == 0 {
-				req := telegram.ListPostsRequest{
+				// Use shared helper to fetch posts
+				req := fetchPostsRequest{
 					ChatId: chat,
 					Limit:  opts.limit,
 					Search: opts.search,
-					OnBatch: func(total int) {
-						fmt.Fprintf(out, "\rLoading posts... %d fetched", total)
-					},
-					OnFloodWait: func(delay time.Duration, total int) {
-						fmt.Fprintf(out, "\rHit rate limit, pausing %s after %d fetched...", delay.Round(time.Second), total)
-					},
 				}
 
-				fmt.Fprintln(out, "Loading posts to select from...")
-				posts, err := svc.ListPosts(cmd.Context(), req)
+				posts, err := fetchPostsWithProgress(
+					cmd.Context(),
+					cfg,
+					out,
+					cmd.InOrStdin(),
+					cmd.ErrOrStderr(),
+					req,
+				)
 				if err != nil {
 					return err
 				}
-				fmt.Fprintln(out)
 
 				if len(posts) == 0 {
 					return errors.New("no posts available to select")
