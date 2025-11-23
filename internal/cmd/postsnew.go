@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -15,72 +17,106 @@ import (
 )
 
 type postsNewOptions struct {
-	file      string
-	html      bool
-	plain     bool
-	silent    bool
-	delimiter string
+	// Text/message options
+	message        string
+	messageFile    string
+	html           bool
+	plain          bool
+	delimiter      string
+
+	// Media upload options
+	files            []string
+	thumb            string
+	autoCaption      bool
+	autoCaptionRegex string
+	group            bool // Upload multiple files as grouped post/album
+
+	// Common options
+	silent bool
 }
 
 func newPostsNewCommand(sharedOpts *sharedPostsOptions) *cobra.Command {
 	opts := &postsNewOptions{
-		delimiter: "[npost]",
+		delimiter:        "[npost]",
+		autoCaptionRegex: defaultAutoCaptionRegex,
 	}
 
 	cmd := &cobra.Command{
 		Use:     "new [message...]",
 		Aliases: []string{"post", "create"},
-		Short:   "Send text messages to channel",
-		Long: `Send text messages to the channel with MarkdownV2 formatting (default).
+		Short:   "Send text messages or upload media to channel",
+		Long: `Send text messages or upload media files to the channel.
 
+SMART DETECTION:
+Arguments are automatically detected as files or text:
+  - If ALL arguments are existing files → upload as media (separate posts)
+  - If NO arguments are files → send as text messages
+  - If MIXED (some files, some text) → error
+
+TEXT MESSAGES:
 Messages are formatted as MarkdownV2 by default. Use standard markdown syntax:
   **bold**, _italic_, ` + "`code`" + `, ` + "```code block```" + `, [link](url)
 
-Input sources (in priority order):
-  1. --file flag: Read from file
-  2. Stdin: Pipe content (e.g., cat file.md | ttools posts new)
-  3. Arguments: Direct message text
+Message input sources (in priority order):
+  1. --message-file: Read from file
+  2. Stdin: Pipe content (text only)
+  3. --message: Direct flag value
+  4. Arguments: Direct message text or file paths
 
-Multiple messages:
-  Separate messages with [npost] delimiter to send multiple messages.
-  Example file:
-    First message with **markdown**
-    [npost]
-    Second message with _formatting_
+MEDIA UPLOADS:
+Use --file flag or provide file paths as arguments:
+  - Supports multiple files (uploaded as separate posts by default)
+  - Use --group to upload multiple files as a single grouped post/album
+  - Auto-detects thumbnails (e.g., video-thumb.jpg)
+  - Can set captions using --message or --autocaption
 
 Examples:
-  # Send a simple message
+  # Send text messages
   ttools posts new "Hello **world**"
+  ttools posts new "Post 1" "Post 2"              # 2 separate posts
 
-  # Send from file
-  ttools posts new -f message.md
+  # Upload media (smart detection)
+  ttools posts new video.mp4                      # Upload 1 file
+  ttools posts new video1.mp4 video2.mp4          # Upload 2 separate posts
+  ttools posts new *.mp4                          # Upload all .mp4 as separate posts
+  ttools posts new *.mp4 --group                  # Upload all as grouped album
 
-  # Pipe from stdin
+  # Explicit --file flag
+  ttools posts new --file video.mp4 --message "Caption"
+  ttools posts new --file v1.mp4 --file v2.mp4    # 2 separate posts
+  ttools posts new --file v1.mp4 --file v2.mp4 --group  # Grouped album
+
+  # Other input methods
+  ttools posts new --message-file message.md
   cat message.md | ttools posts new
-
-  # Use HTML format instead
-  ttools posts new "<b>Bold</b> text" --html
-
-  # Send plain text (no formatting)
-  ttools posts new "Plain text" --plain`,
+  ttools posts new "<b>Bold</b> text" --html`,
 		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runPostsNew(cmd.Context(), cmd, args, opts)
 		},
 	}
 
-	cmd.Flags().StringVarP(&opts.file, "file", "f", "", "Read messages from file")
+	// Message/text flags
+	cmd.Flags().StringVar(&opts.message, "message", "", "Message text or caption")
+	cmd.Flags().StringVar(&opts.messageFile, "message-file", "", "Read message from file")
 	cmd.Flags().BoolVar(&opts.html, "html", false, "Use HTML format instead of MarkdownV2")
 	cmd.Flags().BoolVar(&opts.plain, "plain", false, "Send as plain text (no formatting)")
-	cmd.Flags().BoolVar(&opts.silent, "silent", false, "Send without notification")
 	cmd.Flags().StringVar(&opts.delimiter, "delimiter", opts.delimiter, "Message delimiter for batch sending")
+
+	// Media upload flags
+	cmd.Flags().StringArrayVar(&opts.files, "file", nil, "Media file(s) to upload")
+	cmd.Flags().StringVar(&opts.thumb, "thumb", "", "Custom thumbnail for uploads")
+	cmd.Flags().BoolVar(&opts.autoCaption, "autocaption", false, "Set caption from file name using regex")
+	cmd.Flags().StringVar(&opts.autoCaptionRegex, "autocaption-regex", opts.autoCaptionRegex, "Regex to capture caption from file name (uses first group)")
+	cmd.Flags().BoolVar(&opts.group, "group", false, "Upload multiple files as a single grouped post/album")
+
+	// Common flags
+	cmd.Flags().BoolVar(&opts.silent, "silent", false, "Send without notification")
 
 	return cmd
 }
 
 func runPostsNew(ctx context.Context, cmd *cobra.Command, args []string, opts *postsNewOptions) error {
-	out := cmd.OutOrStdout()
-
 	cfg, err := configFromContext(cmd)
 	if err != nil {
 		return err
@@ -94,6 +130,143 @@ func runPostsNew(ctx context.Context, cmd *cobra.Command, args []string, opts *p
 		return err
 	}
 
+	// Check if --file flag was used explicitly
+	if len(opts.files) > 0 {
+		return runMediaUpload(ctx, cmd, args, opts, cfg, chat)
+	}
+
+	// Smart detection: check if args are files or text
+	if len(args) > 0 {
+		allFiles, hasFiles, hasNonFiles := detectArgsType(args)
+
+		if hasFiles && hasNonFiles {
+			return fmt.Errorf("cannot mix files and text in arguments; use --file for media or --message for text")
+		}
+
+		if allFiles {
+			// All args are existing files, treat as media upload
+			opts.files = args
+			return runMediaUpload(ctx, cmd, nil, opts, cfg, chat)
+		}
+	}
+
+	// Default to text message
+	return runTextMessage(ctx, cmd, args, opts, cfg, chat)
+}
+
+func runMediaUpload(ctx context.Context, cmd *cobra.Command, args []string, opts *postsNewOptions, cfg *config.Config, chat string) error {
+	out := cmd.OutOrStdout()
+
+	// Gather message/caption
+	message := gatherMessage(cmd, args, opts)
+
+	// Check for conflicting flags
+	messageProvided := cmd.Flags().Changed("message") || opts.messageFile != "" || isPipedInput() || len(args) > 0
+	if messageProvided && opts.autoCaption {
+		return fmt.Errorf("cannot use both --message (or message input) and --autocaption together")
+	}
+
+	// Expand and validate thumb path
+	thumbProvided := cmd.Flags().Changed("thumb")
+	providedThumb := opts.thumb
+	if thumbProvided && providedThumb != "" {
+		providedThumb, err := config.ExpandPath(providedThumb)
+		if err != nil {
+			return fmt.Errorf("expand provided thumb: %w", err)
+		}
+		opts.thumb = providedThumb
+	}
+
+	// Get default thumb from config
+	defaultThumb := cfg.Defaults.Thumb
+	if defaultThumb != "" {
+		var err error
+		defaultThumb, err = config.ExpandPath(defaultThumb)
+		if err != nil {
+			return fmt.Errorf("expand default thumb: %w", err)
+		}
+	}
+
+	// Compile autocaption regex if needed
+	var autoCaptionRe *regexp.Regexp
+	if opts.autoCaption {
+		autoCaptionRe, err := regexp.Compile(opts.autoCaptionRegex)
+		if err != nil {
+			return fmt.Errorf("compile autocaption regex: %w", err)
+		}
+		opts.autoCaptionRegex = autoCaptionRe.String()
+	}
+
+	svc := telegram.NewService(cfg, telegram.WithIO(cmd.InOrStdin(), out, cmd.ErrOrStderr()))
+
+	// Upload each file
+	for i, filePath := range opts.files {
+		filePath, err := config.ExpandPath(filePath)
+		if err != nil {
+			return fmt.Errorf("expand file path %q: %w", filePath, err)
+		}
+
+		// Determine thumbnail for this file
+		thumb := providedThumb
+		autoThumbFound := false
+		if !thumbProvided {
+			thumb, autoThumbFound, err = findSiblingThumbnail(filePath)
+			if err != nil {
+				return err
+			}
+			if thumb == "" {
+				thumb = defaultThumb
+			}
+		} else if thumb == "" {
+			thumb = defaultThumb
+		}
+
+		if autoThumbFound {
+			fmt.Fprintf(out, "🖼️ Using detected thumbnail %s\n", filepath.Base(thumb))
+		}
+
+		// Determine caption for this file
+		caption := message
+		captionSet := messageProvided
+		if opts.autoCaption && autoCaptionRe != nil {
+			name := strings.TrimSuffix(filepath.Base(filePath), filepath.Ext(filePath))
+			rg := autoCaptionRe.FindStringSubmatch(name)
+			if len(rg) > 1 {
+				caption = strings.TrimSpace(rg[1])
+			} else {
+				caption = name
+			}
+			captionSet = true
+		}
+
+		// Upload the file
+		if err := svc.Upload(ctx, telegram.UploadRequest{
+			ChatId:     chat,
+			FilePath:   filePath,
+			ThumbPath:  thumb,
+			Caption:    caption,
+			CaptionSet: captionSet,
+			Silent:     opts.silent,
+		}); err != nil {
+			return err
+		}
+
+		// Add delay between uploads (except after last)
+		if i < len(opts.files)-1 {
+			select {
+			case <-time.After(1100 * time.Millisecond):
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+	}
+
+	return nil
+}
+
+func runTextMessage(ctx context.Context, cmd *cobra.Command, args []string, opts *postsNewOptions, cfg *config.Config, chat string) error {
+	out := cmd.OutOrStdout()
+
 	// Determine parse mode
 	parseMode := "MarkdownV2" // default
 	if opts.html {
@@ -105,15 +278,15 @@ func runPostsNew(ctx context.Context, cmd *cobra.Command, args []string, opts *p
 	// Gather input from various sources
 	var messages []string
 
-	// Priority 1: Read from file
-	if opts.file != "" {
-		filePath, err := config.ExpandPath(opts.file)
+	// Priority 1: Read from message file
+	if opts.messageFile != "" {
+		filePath, err := config.ExpandPath(opts.messageFile)
 		if err != nil {
-			return fmt.Errorf("expand file path: %w", err)
+			return fmt.Errorf("expand message file path: %w", err)
 		}
 		content, err := os.ReadFile(filePath)
 		if err != nil {
-			return fmt.Errorf("read file: %w", err)
+			return fmt.Errorf("read message file: %w", err)
 		}
 		messages = splitMessages(string(content), opts.delimiter)
 	}
@@ -127,22 +300,25 @@ func runPostsNew(ctx context.Context, cmd *cobra.Command, args []string, opts *p
 		messages = splitMessages(string(content), opts.delimiter)
 	}
 
-	// Priority 3: Use positional arguments
+	// Priority 3: Use --message flag
+	if len(messages) == 0 && opts.message != "" {
+		messages = splitMessages(opts.message, opts.delimiter)
+	}
+
+	// Priority 4: Use positional arguments
 	if len(messages) == 0 && len(args) > 0 {
-		// Join all args as a single message, then split by delimiter
 		combined := strings.Join(args, " ")
 		messages = splitMessages(combined, opts.delimiter)
 	}
 
 	if len(messages) == 0 {
-		return fmt.Errorf("no messages provided (use args, --file, or pipe from stdin)")
+		return fmt.Errorf("no messages provided (use args, --message, --message-file, or pipe from stdin)")
 	}
 
 	// Send messages with batch delay
 	svc := telegram.NewService(cfg, telegram.WithIO(cmd.InOrStdin(), out, cmd.ErrOrStderr()))
 
 	for i, msg := range messages {
-		// Trim whitespace
 		msg = strings.TrimSpace(msg)
 		if msg == "" {
 			continue
@@ -179,6 +355,38 @@ func runPostsNew(ctx context.Context, cmd *cobra.Command, args []string, opts *p
 	return nil
 }
 
+// gatherMessage collects message/caption from various sources
+func gatherMessage(cmd *cobra.Command, args []string, opts *postsNewOptions) string {
+	// Priority 1: message-file
+	if opts.messageFile != "" {
+		filePath, err := config.ExpandPath(opts.messageFile)
+		if err == nil {
+			if content, err := os.ReadFile(filePath); err == nil {
+				return strings.TrimSpace(string(content))
+			}
+		}
+	}
+
+	// Priority 2: piped stdin (text only)
+	if isPipedInput() {
+		if content, err := io.ReadAll(cmd.InOrStdin()); err == nil {
+			return strings.TrimSpace(string(content))
+		}
+	}
+
+	// Priority 3: --message flag
+	if opts.message != "" {
+		return opts.message
+	}
+
+	// Priority 4: args
+	if len(args) > 0 {
+		return strings.Join(args, " ")
+	}
+
+	return ""
+}
+
 // splitMessages splits content by delimiter and returns non-empty messages
 func splitMessages(content, delimiter string) []string {
 	parts := strings.Split(content, delimiter)
@@ -199,4 +407,27 @@ func isPipedInput() bool {
 		return false
 	}
 	return (stat.Mode() & os.ModeCharDevice) == 0
+}
+
+// detectArgsType checks if arguments are files, text, or mixed
+// Returns: allFiles, hasFiles, hasNonFiles
+func detectArgsType(args []string) (allFiles bool, hasFiles bool, hasNonFiles bool) {
+	for _, arg := range args {
+		// Try to expand the path first (handles ~ and env vars)
+		expanded, err := config.ExpandPath(arg)
+		if err != nil {
+			// If expansion fails, treat as non-file (text)
+			hasNonFiles = true
+			continue
+		}
+
+		// Check if the expanded path exists as a file
+		if _, err := os.Stat(expanded); err == nil {
+			hasFiles = true
+		} else {
+			hasNonFiles = true
+		}
+	}
+	allFiles = hasFiles && !hasNonFiles
+	return
 }

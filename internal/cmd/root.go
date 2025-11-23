@@ -32,7 +32,7 @@ type state struct {
 func newRootCommand() *cobra.Command {
 	root := &cobra.Command{
 		Use:   "ttools",
-		Short: "Telegram tooling for uploads, reuploads and channel maintenance",
+		Short: "Telegram tooling for channel posts and maintenance",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
 		},
@@ -57,8 +57,6 @@ func newRootCommand() *cobra.Command {
 	addPersistentConfigFlag(root.PersistentFlags(), "chat", "Default target chat username or ID", "defaults.chat")
 	addPersistentConfigFlag(root.PersistentFlags(), "thumb", "Default thumbnail for video uploads", "defaults.thumb")
 
-	root.AddCommand(newUploadCommand())
-	root.AddCommand(newReuploadCommand())
 	root.AddCommand(newPostsCommand())
 	root.AddCommand(newChatsCommand())
 

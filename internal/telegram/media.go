@@ -61,11 +61,18 @@ func (s *Service) prepareMedia(ctx context.Context, api *tg.Client, req mediaReq
 	}
 
 	meta, probeErr := analyzeMedia(ctx, req.FilePath)
-	if probeErr != nil && s.io.err != nil {
-		fmt.Fprintf(s.io.err, "warning: ffprobe failed for %s, falling back to MIME detection (%v)\n", req.FilePath, probeErr)
-	}
 	if meta.Kind == mediaKindUnknown {
 		meta.Kind = guessKindFromMIME(meta.MIME)
+	}
+
+	// Only warn about ffprobe failures for files we expect to be media
+	if probeErr != nil && s.io.err != nil {
+		expectedMedia := strings.HasPrefix(strings.ToLower(meta.MIME), "video/") ||
+			strings.HasPrefix(strings.ToLower(meta.MIME), "image/") ||
+			meta.MIME == "image/gif"
+		if expectedMedia {
+			fmt.Fprintf(s.io.err, "warning: could not extract media metadata for %s, using basic detection\n", filepath.Base(req.FilePath))
+		}
 	}
 
 	switch meta.Kind {
