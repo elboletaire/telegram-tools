@@ -781,8 +781,8 @@ func ensureDir(path string) error {
 
 func (s *Service) authenticator() auth.UserAuthenticator {
 	return &interactiveAuth{
-		phone:    strings.TrimSpace(s.cfg.API.Phone),
-		password: strings.TrimSpace(s.cfg.API.Password),
+		phone:    strings.TrimSpace(s.cfg.Session.Phone),
+		password: strings.TrimSpace(s.cfg.Session.Password),
 		prompter: s.prompter,
 	}
 }

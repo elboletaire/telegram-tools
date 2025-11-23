@@ -19,17 +19,17 @@ type Config struct {
 	Defaults DefaultsConfig `mapstructure:"defaults"`
 }
 
-// APIConfig stores Telegram credentials.
+// APIConfig stores Telegram API credentials from apps.telegram.org
 type APIConfig struct {
-	ID       int    `mapstructure:"id"`
-	Hash     string `mapstructure:"hash"`
-	Phone    string `mapstructure:"phone"`
-	Password string `mapstructure:"password"`
+	ID   int    `mapstructure:"id"`
+	Hash string `mapstructure:"hash"`
 }
 
-// SessionConfig stores MTProto session persistence details.
+// SessionConfig stores MTProto session persistence and authentication details.
 type SessionConfig struct {
-	File string `mapstructure:"file"`
+	File     string `mapstructure:"file"`
+	Phone    string `mapstructure:"phone"`
+	Password string `mapstructure:"password"` // Optional 2FA password, NOT the login code
 }
 
 // DefaultsConfig hosts frequently reused flag values.
