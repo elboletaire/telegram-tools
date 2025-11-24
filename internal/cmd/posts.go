@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/elboletaire/ttools/internal/config"
+	"github.com/elboletaire/ttools/internal/floodwait"
 	"github.com/elboletaire/ttools/internal/telegram"
 )
 
@@ -61,7 +62,9 @@ func fetchPostsWithProgress(ctx context.Context, cfg *config.Config, out io.Writ
 			fmt.Fprintf(out, "\rLoading posts... %d fetched", total)
 		},
 		OnFloodWait: func(delay time.Duration, total int) {
-			fmt.Fprintf(out, "\rHit rate limit, pausing %s after %d fetched...", delay.Round(time.Second), total)
+			floodwait.Start(ctx, out, delay, func(remaining time.Duration) string {
+				return fmt.Sprintf("\rHit rate limit, retrying in %.2fs after %d fetched...", remaining.Seconds(), total)
+			})
 		},
 	}
 

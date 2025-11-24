@@ -22,6 +22,7 @@ import (
 	"github.com/gotd/td/tgerr"
 
 	"github.com/elboletaire/ttools/internal/config"
+	"github.com/elboletaire/ttools/internal/floodwait"
 )
 
 // ServiceOption configures the Telegram service behavior.
@@ -787,17 +788,19 @@ func (s *Service) authenticator() auth.UserAuthenticator {
 	}
 }
 
-func (s *Service) buildFloodLogger(chatDisplay, fileName string) func(time.Duration) {
-	return func(delay time.Duration) {
+func (s *Service) buildFloodLogger(chatDisplay, fileName string) func(context.Context, time.Duration) {
+	return func(ctx context.Context, delay time.Duration) {
 		out := s.io.out
 		if out == nil {
 			return
 		}
-		fmt.Fprintf(out, "\rRate limit hit while talking to %s (%s), waiting %s...", chatDisplay, fileName, delay.Round(time.Second))
+		floodwait.Start(ctx, out, delay, func(remaining time.Duration) string {
+			return fmt.Sprintf("\rRate limit hit while talking to %s (%s), retrying in %.2fs...", chatDisplay, fileName, remaining.Seconds())
+		})
 	}
 }
 
-func callWithFloodRetry(ctx context.Context, fn func() error, onFlood func(time.Duration)) error {
+func callWithFloodRetry(ctx context.Context, fn func() error, onFlood func(context.Context, time.Duration)) error {
 	for {
 		err := fn()
 		if err == nil {
@@ -806,7 +809,7 @@ func callWithFloodRetry(ctx context.Context, fn func() error, onFlood func(time.
 		if delay, ok := tgerr.AsFloodWait(err); ok {
 			delay += time.Second
 			if onFlood != nil {
-				onFlood(delay)
+				onFlood(ctx, delay)
 			}
 			if err := sleepWithContext(ctx, delay); err != nil {
 				return err
