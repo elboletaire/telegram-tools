@@ -1,2 +1,4 @@
 ttools
 /*.cache*
+/dist
+coverage.*
