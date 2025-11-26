@@ -16,6 +16,33 @@ func (c *Config) RequireAPI() error {
 	return nil
 }
 
+// RequireAuth ensures at least one authentication method is configured.
+func (c *Config) RequireAuth() error {
+	hasBotToken := strings.TrimSpace(c.Session.BotToken) != ""
+	hasPhone := strings.TrimSpace(c.Session.Phone) != ""
+
+	if hasBotToken && hasPhone {
+		return fmt.Errorf("cannot use both bot_token and phone authentication; choose one")
+	}
+
+	if !hasBotToken && !hasPhone {
+		return fmt.Errorf("authentication required: provide either session.bot_token or session.phone")
+	}
+
+	return nil
+}
+
+// Requirements ensures all required session configuration is present (API credentials + authentication).
+func (c *Config) Requirements() error {
+	if err := c.RequireAPI(); err != nil {
+		return err
+	}
+	if err := c.RequireAuth(); err != nil {
+		return err
+	}
+	return nil
+}
+
 // ResolveChat returns the effective chat identifier argument.
 func (c *Config) ResolveChat(provided string) (string, error) {
 	chat := strings.TrimSpace(provided)

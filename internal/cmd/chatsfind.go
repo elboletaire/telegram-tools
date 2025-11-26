@@ -62,7 +62,7 @@ Duration format: 24h, 7d, 30d, 90d`,
 			if err != nil {
 				return err
 			}
-			if err := cfg.RequireAPI(); err != nil {
+			if err := cfg.Requirements(); err != nil {
 				return err
 			}
 

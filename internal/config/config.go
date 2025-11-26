@@ -30,6 +30,7 @@ type SessionConfig struct {
 	File     string `mapstructure:"file"`
 	Phone    string `mapstructure:"phone"`
 	Password string `mapstructure:"password"` // Optional 2FA password, NOT the login code
+	BotToken string `mapstructure:"bot_token"` // Bot token from @BotFather (alternative to phone auth)
 }
 
 // DefaultsConfig hosts frequently reused flag values.

@@ -18,11 +18,11 @@ import (
 
 type postsNewOptions struct {
 	// Text/message options
-	message        string
-	messageFile    string
-	html           bool
-	plain          bool
-	delimiter      string
+	message     string
+	messageFile string
+	html        bool
+	plain       bool
+	delimiter   string
 
 	// Media upload options
 	files            []string
@@ -121,7 +121,7 @@ func runPostsNew(ctx context.Context, cmd *cobra.Command, args []string, opts *p
 	if err != nil {
 		return err
 	}
-	if err := cfg.RequireAPI(); err != nil {
+	if err := cfg.Requirements(); err != nil {
 		return err
 	}
 

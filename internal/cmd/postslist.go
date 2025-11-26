@@ -19,7 +19,7 @@ func newPostsListCommand(sharedOpts *sharedPostsOptions) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := cfg.RequireAPI(); err != nil {
+			if err := cfg.Requirements(); err != nil {
 				return err
 			}
 

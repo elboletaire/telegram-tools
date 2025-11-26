@@ -719,8 +719,7 @@ func (s *Service) run(ctx context.Context, fn func(context.Context, *tg.Client) 
 	})
 
 	return client.Run(ctx, func(runCtx context.Context) error {
-		flow := auth.NewFlow(s.authenticator(), auth.SendCodeOptions{})
-		if err := client.Auth().IfNecessary(runCtx, flow); err != nil {
+		if err := s.authenticate(runCtx, client); err != nil {
 			return err
 		}
 		return fn(runCtx, client.API())
@@ -778,6 +777,25 @@ func ensureDir(path string) error {
 		return nil
 	}
 	return os.MkdirAll(path, 0o700)
+}
+
+// authenticate handles both bot and user authentication based on configuration.
+func (s *Service) authenticate(ctx context.Context, client *telegram.Client) error {
+	botToken := strings.TrimSpace(s.cfg.Session.BotToken)
+	if botToken != "" {
+		// Bot authentication
+		if _, err := client.Auth().Bot(ctx, botToken); err != nil {
+			return fmt.Errorf("bot authentication failed: %w", err)
+		}
+		return nil
+	}
+
+	// User authentication
+	flow := auth.NewFlow(s.authenticator(), auth.SendCodeOptions{})
+	if err := client.Auth().IfNecessary(ctx, flow); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *Service) authenticator() auth.UserAuthenticator {

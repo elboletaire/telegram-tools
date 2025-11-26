@@ -1,24 +1,49 @@
 # ttools
 
-Command-line tool for managing Telegram channel posts: send messages, upload media, edit posts, and explore content—all without relying on third-party bots. The CLI is organized with Cobra and leans on Viper for configuration so that frequently reused options (API credentials, default chat, thumbnail paths, session location) live in a single file. MTProto calls are powered by [`gotd/td`](https://github.com/gotd/td).
+Command-line tool for managing Telegram channel posts: send messages, upload media, edit posts, and explore content—all without relying on third-party bots. The first run will prompt for the login code (and 2FA password when enabled) and save a session to disk so subsequent executions work non-interactively.
 
-## Status
+## Getting Started
 
-All core features (sending messages, uploading media, editing posts, listing/finding posts) use a real Telegram client built on gotd. The first run will prompt for the login code (and 2FA password when enabled) and save a session to disk so subsequent executions work non-interactively.
+### Installation
 
-## Requirements
-
-- Go 1.21+
-- `ffprobe` available in your `$PATH` (part of FFmpeg) so `ttools` can read video metadata and send media inline. Without it uploads still work, but Telegram will treat videos as generic files.
-
-## Project layout
-
+**Option 1: Download Binary** (Coming soon)
+```bash
+# Download the latest release for your platform
+# Extract and move to your PATH
 ```
-cmd/ttools/main.go      # binary entrypoint
-internal/cmd            # Cobra commands
-internal/config         # config file/env helpers
-internal/telegram       # Telegram service façade (to be implemented)
+
+**Option 2: Build from Source**
+```bash
+git clone https://github.com/yourusername/ttools.git
+cd ttools
+go build -o ttools cmd/ttools/main.go
 ```
+
+### Quick Setup
+
+1. **Get Telegram API Credentials**
+   - Visit [apps.telegram.org](https://my.telegram.org/apps)
+   - Create an application to get your `api_id` and `api_hash`
+
+2. **Create Configuration File**
+   - Create `~/.ttools.yaml` with your credentials:
+
+```yaml
+api:
+  id: 123456                                        # From apps.telegram.org
+  hash: "0123456789abcdef0123456789abcdef"         # From apps.telegram.org
+session:
+  phone: "+123456789"                               # Your phone number
+  password: ""                                      # Optional 2FA password (NOT login code)
+defaults:
+  chat: "@mychat"                                   # Your default channel/chat
+```
+
+3. **First Run**
+   - Run any command (e.g., `ttools posts list`)
+   - You'll be prompted for the login code sent to your Telegram
+   - If you have 2FA enabled, you'll be prompted for your password
+   - A session file is saved so you won't need to login again
 
 ## Configuration
 
@@ -37,16 +62,49 @@ defaults:
   thumb: ~/Pictures/thumb.jpg
 ```
 
-Authentication flow:
+### Authentication Methods
+
+**Option 1: User Authentication (Phone-based)**
 
 1. Configure `api.id` and `api.hash` with your Telegram app credentials from [apps.telegram.org](https://my.telegram.org/apps).
 2. Supply a `phone` number (either via config, env, or `--phone`). The CLI will prompt if it is omitted during the first login.
 3. Optionally provide `session.password` for 2FA (two-factor authentication); otherwise the CLI prompts when Telegram requests it. **Note:** This is your 2FA password, NOT the temporary login code sent via SMS/Telegram.
 4. The generated session is stored at `session.file` so that later runs can skip the login prompts.
 
+**Option 2: Bot Authentication (Recommended for automation)**
+
+Instead of authenticating as a user, you can authenticate as a bot:
+
+1. Create a bot with [@BotFather](https://t.me/botfather)
+2. Add the bot as an administrator to your channel
+3. Configure the bot token instead of phone:
+
+```yaml
+api:
+  id: 123456
+  hash: "abc123def456"
+session:
+  bot_token: "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
+defaults:
+  chat: "@mychannel"
+```
+
+Or use environment variable:
+```bash
+export TTOOLS_SESSION_BOT_TOKEN="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
+ttools posts list
+```
+
+Or CLI flag:
+```bash
+ttools --bot-token "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11" posts list
+```
+
+**Note:** Bot authentication doesn't require phone numbers or 2FA, making it ideal for CI/CD and automation. The bot must be added as an admin to manage channels.
+
 If you place the config elsewhere, run with `ttools --config /path/to/file posts new …`.
 
-## CLI usage
+## CLI Usage
 
 All post-related operations are now under the `posts` command:
 
@@ -55,6 +113,8 @@ All post-related operations are now under the `posts` command:
 ttools posts new "Hello **world**"
 ttools posts new --message-file message.md
 echo "Text" | ttools posts new
+cat message.md | ttools posts new --chat -123456789
+cat message.html | ttools posts new --html
 
 # Upload media with caption
 ttools posts new --file video.mp4 --message "My caption"
@@ -70,7 +130,7 @@ ttools posts list --limit 50
 ttools posts find --search "keyword"
 ```
 
-### Common flags
+### Common Flags
 
 **Message/text input** (for `posts new` and `posts edit`):
 - `--message "text"` - Direct message text or caption
@@ -87,30 +147,42 @@ ttools posts find --search "keyword"
 **Formatting**:
 - `--html` - Use HTML format
 - `--plain` - Plain text (no formatting)
-- Default is MarkdownV2
+- Default is Markdown
 
 **Other**:
 - `--silent` - Send/edit without notification
 - `--delimiter` - Message delimiter for batch sending (default: `[npost]`)
 
-### Global flags
+### Global Flags
 
 These apply to every command and can be stored in the config file:
 
 ```
 --api-id int           Telegram API ID (from apps.telegram.org)
 --api-hash string      Telegram API hash (from apps.telegram.org)
---phone string         Phone number for login
---password string      2FA password (NOT login code)
+--phone string         Phone number for login (user auth)
+--password string      2FA password (NOT login code, user auth only)
+--bot-token string     Bot token from @BotFather (alternative to phone auth)
 --session string       Path to the session file
 --chat string          Default chat username or ID (e.g. @username or -1001234567890)
 --thumb string         Default thumbnail for video uploads
 ```
 
-## Next steps
+## Requirements
 
-1. ✅ ~~Let `reupload` fall back to an interactive selection when `--post-id` is omitted~~ - Implemented in `posts edit`
-2. ✅ ~~Consolidate upload commands under `posts`~~ - Now unified as `posts new` and `posts edit`
-3. Implement text-only editing in `posts edit` (currently only supports media replacement)
-4. Auto-generate thumbnails (via ffmpeg) when none are provided, so videos always have a preview
-5. Add tests around config loading, flag overrides, and Telegram interactions (mocking gotd) plus richer error-handling/logging
+### For Binary Users
+
+`ffprobe` (part of FFmpeg) is recommended for reading video metadata so Telegram can display videos inline. Without it, uploads still work but videos are treated as generic files.
+  - Install on macOS: `brew install ffmpeg`
+  - Install on Ubuntu/Debian: `apt install ffmpeg`
+  - Install on Windows: Download from [ffmpeg.org](https://ffmpeg.org/download.html)
+	- "I'm on Arch, btw": `pacman -S extra/ffmpeg`
+
+### For Building from Source
+
+- Go 1.21+
+- `ffprobe` (as above)
+
+## Thanks
+
+Built with [gotd/td](https://github.com/gotd/td) for MTProto communication with Telegram.

@@ -53,6 +53,7 @@ func newRootCommand() *cobra.Command {
 	addPersistentConfigFlag(root.PersistentFlags(), "api-hash", "Telegram API hash from apps.telegram.org", "api.hash")
 	addPersistentConfigFlag(root.PersistentFlags(), "phone", "Phone number for Telegram login", "session.phone")
 	addPersistentConfigFlag(root.PersistentFlags(), "password", "Two-factor authentication password (not login code)", "session.password")
+	addPersistentConfigFlag(root.PersistentFlags(), "bot-token", "Bot token from @BotFather (alternative to phone auth)", "session.bot_token")
 	addPersistentConfigFlag(root.PersistentFlags(), "session", fmt.Sprintf("Session file path (default %s)", config.DefaultSessionFile()), "session.file")
 	addPersistentConfigFlag(root.PersistentFlags(), "chat", "Default target chat username or ID", "defaults.chat")
 	addPersistentConfigFlag(root.PersistentFlags(), "thumb", "Default thumbnail for video uploads", "defaults.thumb")

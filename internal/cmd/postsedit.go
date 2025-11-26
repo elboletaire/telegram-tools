@@ -23,11 +23,11 @@ type postsEditOptions struct {
 	pageSize int
 
 	// Message/caption options
-	message        string
-	messageFile    string
-	clearMessage   bool
-	html           bool
-	plain          bool
+	message      string
+	messageFile  string
+	clearMessage bool
+	html         bool
+	plain        bool
 
 	// Media options
 	file  string
@@ -121,7 +121,7 @@ func runPostsEdit(ctx context.Context, cmd *cobra.Command, args []string, opts *
 	if err != nil {
 		return err
 	}
-	if err := cfg.RequireAPI(); err != nil {
+	if err := cfg.Requirements(); err != nil {
 		return err
 	}
 
