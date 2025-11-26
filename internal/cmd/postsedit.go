@@ -216,9 +216,53 @@ func runMediaReplace(ctx context.Context, cmd *cobra.Command, args []string, opt
 }
 
 func runTextEdit(ctx context.Context, cmd *cobra.Command, args []string, opts *postsEditOptions, cfg *config.Config, chat string, svc *telegram.Service) error {
-	// For text-only edits, we need to use the EditMessage API (not yet implemented in service)
-	// For now, return an error message
-	return errors.New("text-only editing is not yet implemented; please use --file to replace media")
+	out := cmd.OutOrStdout()
+
+	// Determine parse mode
+	parseMode := "MarkdownV2" // default
+	if opts.html {
+		parseMode = "HTML"
+	} else if opts.plain {
+		parseMode = ""
+	}
+
+	// Gather message from various sources
+	message := gatherMessageEdit(cmd, args, opts)
+	messageProvided := cmd.Flags().Changed("message") || opts.messageFile != "" || isPipedInput() || len(args) > 0
+
+	// Check for conflicting flags
+	if messageProvided && opts.clearMessage {
+		return errors.New("cannot use message input and --clear-message together")
+	}
+
+	// Handle clear-message flag
+	if opts.clearMessage {
+		message = ""
+		parseMode = "" // No entities when clearing
+	} else if !messageProvided || strings.TrimSpace(message) == "" {
+		return errors.New("message is required (use args, --message, --message-file, pipe from stdin, or --clear-message)")
+	}
+
+	// Edit the message
+	if err := svc.EditMessage(ctx, telegram.EditMessageRequest{
+		ChatId:    chat,
+		PostId:    opts.postID,
+		Message:   message,
+		ParseMode: parseMode,
+		Silent:    opts.silent,
+	}); err != nil {
+		return err
+	}
+
+	// Print success
+	if opts.clearMessage {
+		fmt.Fprintf(out, "✅ Cleared message #%d in %s\n", opts.postID, chat)
+	} else {
+		preview := formatMessagePreview(message, 60)
+		fmt.Fprintf(out, "✅ Updated message #%d in %s to: %s\n", opts.postID, chat, preview)
+	}
+
+	return nil
 }
 
 // gatherMessageEdit collects message/caption from various sources for edit command
@@ -251,4 +295,17 @@ func gatherMessageEdit(cmd *cobra.Command, args []string, opts *postsEditOptions
 	}
 
 	return ""
+}
+
+// formatMessagePreview creates a truncated preview of a message
+func formatMessagePreview(message string, maxRunes int) string {
+	trimmed := strings.TrimSpace(message)
+	if trimmed == "" {
+		return "(empty)"
+	}
+	runes := []rune(trimmed)
+	if len(runes) <= maxRunes {
+		return trimmed
+	}
+	return string(runes[:maxRunes]) + "..."
 }

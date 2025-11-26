@@ -133,6 +133,15 @@ type SendMessageRequest struct {
 	Silent    bool
 }
 
+// EditMessageRequest represents text-only message editing.
+type EditMessageRequest struct {
+	ChatId    string
+	PostId    int
+	Message   string
+	ParseMode string // "MarkdownV2", "HTML", or "" for plain text
+	Silent    bool
+}
+
 // ListChatsRequest describes pagination/search filters for chats.
 type ListChatsRequest struct {
 	Limit  int
@@ -324,6 +333,58 @@ func (s *Service) SendMessage(ctx context.Context, req SendMessageRequest) (int,
 	})
 
 	return messageID, err
+}
+
+// EditMessage edits the text of an existing message without changing media.
+func (s *Service) EditMessage(ctx context.Context, req EditMessageRequest) error {
+	// Validation
+	if req.PostId == 0 {
+		return fmt.Errorf("post id is required")
+	}
+	if strings.TrimSpace(req.ChatId) == "" {
+		return fmt.Errorf("channel is required")
+	}
+
+	return s.run(ctx, func(ctx context.Context, api *tg.Client) error {
+		// Resolve channel
+		channel, err := s.resolveChat(ctx, api, req.ChatId)
+		if err != nil {
+			return err
+		}
+
+		// Parse message based on mode
+		message := req.Message
+		var entities []tg.MessageEntityClass
+
+		if req.ParseMode == "MarkdownV2" {
+			parsedText, parsedEntities, err := ParseMarkdownV2(message)
+			if err != nil {
+				return fmt.Errorf("parse markdown: %w", err)
+			}
+			message = parsedText
+			entities = parsedEntities
+		}
+		// HTML mode: send raw message (HTML parser not implemented yet)
+
+		// Build edit request
+		edit := &tg.MessagesEditMessageRequest{
+			Peer:    channel.peer,
+			ID:      req.PostId,
+			Message: message,
+		}
+
+		// Only set entities if we have any
+		if len(entities) > 0 {
+			edit.Entities = entities
+		}
+
+		// Execute with flood retry
+		onFlood := s.buildFloodLogger(req.ChatId, fmt.Sprintf("message #%d", req.PostId))
+		return callWithFloodRetry(ctx, func() error {
+			_, err := api.MessagesEditMessage(ctx, edit)
+			return err
+		}, onFlood)
+	})
 }
 
 // ReplaceMedia edits an existing message with new media.
