@@ -23,6 +23,7 @@ type postsNewOptions struct {
 	html        bool
 	plain       bool
 	delimiter   string
+	noPreview   bool
 
 	// Media upload options
 	files            []string
@@ -112,6 +113,7 @@ Examples:
 
 	// Common flags
 	cmd.Flags().BoolVar(&opts.silent, "silent", false, "Send without notification")
+	cmd.Flags().BoolVar(&opts.noPreview, "no-preview", false, "Disable link preview generation")
 
 	return cmd
 }
@@ -329,6 +331,7 @@ func runTextMessage(ctx context.Context, cmd *cobra.Command, args []string, opts
 			Message:   msg,
 			ParseMode: parseMode,
 			Silent:    opts.silent,
+			NoWebpage: opts.noPreview,
 		}
 
 		messageID, err := svc.SendMessage(ctx, req)

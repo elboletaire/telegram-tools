@@ -131,6 +131,7 @@ type SendMessageRequest struct {
 	Message   string
 	ParseMode string // "MarkdownV2", "HTML", or "" for plain text
 	Silent    bool
+	NoWebpage bool   // When true, disables link preview generation
 }
 
 // EditMessageRequest represents text-only message editing.
@@ -140,6 +141,7 @@ type EditMessageRequest struct {
 	Message   string
 	ParseMode string // "MarkdownV2", "HTML", or "" for plain text
 	Silent    bool
+	NoWebpage bool   // When true, disables link preview generation
 }
 
 // ListChatsRequest describes pagination/search filters for chats.
@@ -306,6 +308,7 @@ func (s *Service) SendMessage(ctx context.Context, req SendMessageRequest) (int,
 			RandomID: randomID,
 		}
 		send.SetSilent(req.Silent)
+		send.SetNoWebpage(req.NoWebpage)
 
 		// Only set entities if we have any (for markdown mode)
 		if len(entities) > 0 {
@@ -372,6 +375,7 @@ func (s *Service) EditMessage(ctx context.Context, req EditMessageRequest) error
 			ID:      req.PostId,
 			Message: message,
 		}
+		edit.SetNoWebpage(req.NoWebpage)
 
 		// Only set entities if we have any
 		if len(entities) > 0 {

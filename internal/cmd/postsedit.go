@@ -28,6 +28,7 @@ type postsEditOptions struct {
 	clearMessage bool
 	html         bool
 	plain        bool
+	noPreview    bool
 
 	// Media options
 	file  string
@@ -103,6 +104,7 @@ Examples:
 	cmd.Flags().BoolVar(&opts.clearMessage, "remove-message", false, "Remove the message/caption entirely (alias)")
 	cmd.Flags().BoolVar(&opts.html, "html", false, "Use HTML format instead of MarkdownV2")
 	cmd.Flags().BoolVar(&opts.plain, "plain", false, "Send as plain text (no formatting)")
+	cmd.Flags().BoolVar(&opts.noPreview, "no-preview", false, "Disable link preview generation")
 
 	// Media flags
 	cmd.Flags().StringVar(&opts.file, "file", "", "New media file to replace")
@@ -250,6 +252,7 @@ func runTextEdit(ctx context.Context, cmd *cobra.Command, args []string, opts *p
 		Message:   message,
 		ParseMode: parseMode,
 		Silent:    opts.silent,
+		NoWebpage: opts.noPreview,
 	}); err != nil {
 		return err
 	}
