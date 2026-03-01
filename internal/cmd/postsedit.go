@@ -62,7 +62,9 @@ Update the message text using the same flexible input options as 'posts new':
 Messages support MarkdownV2 (default), HTML (--html), or plain text (--plain).
 
 MEDIA EDITING:
-Replace the media file using --file flag. Can also update thumbnail with --thumb.
+Replace the media file using --file flag. Auto-detects sibling thumbnails
+(*-thumb.jpg, *-thumb.jpeg) when --thumb is not provided.
+Can also update thumbnail with --thumb.
 
 Examples:
   # Edit message text (interactive post selection)
@@ -108,7 +110,7 @@ Examples:
 
 	// Media flags
 	cmd.Flags().StringVar(&opts.file, "file", "", "New media file to replace")
-	cmd.Flags().StringVar(&opts.thumb, "thumb", "", "New thumbnail for media")
+	cmd.Flags().StringVar(&opts.thumb, "thumb", "", "New thumbnail for media (auto-detected from <file>-thumb.jpg/.jpeg if omitted)")
 
 	// Common flags
 	cmd.Flags().BoolVar(&opts.silent, "silent", false, "Edit message silently if possible")
@@ -178,23 +180,24 @@ func runPostsEdit(ctx context.Context, cmd *cobra.Command, args []string, opts *
 }
 
 func runMediaReplace(ctx context.Context, cmd *cobra.Command, args []string, opts *postsEditOptions, cfg *config.Config, chat string, svc *telegram.Service) error {
+	out := cmd.OutOrStdout()
+
 	// Expand file path
 	filePath, err := config.ExpandPath(opts.file)
 	if err != nil {
 		return fmt.Errorf("expand file path: %w", err)
 	}
 
-	// Handle thumbnail
-	thumb := opts.thumb
-	if thumb == "" {
-		thumb = cfg.Defaults.Thumb
+	thumb, autoThumbFound, err := resolveReplacementThumbnail(
+		filePath,
+		cmd.Flags().Changed("thumb"),
+		opts.thumb,
+		cfg.Defaults.Thumb,
+	)
+	if err != nil {
+		return err
 	}
-	if thumb != "" {
-		thumb, err = config.ExpandPath(thumb)
-		if err != nil {
-			return fmt.Errorf("expand thumb: %w", err)
-		}
-	}
+	printDetectedThumbnail(out, thumb, autoThumbFound)
 
 	// Gather caption/message
 	message := gatherMessageEdit(cmd, args, opts)

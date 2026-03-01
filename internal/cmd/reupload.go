@@ -79,16 +79,16 @@ func newReuploadCommand() *cobra.Command {
 				return fmt.Errorf("expand file path: %w", err)
 			}
 
-			thumb := opts.thumb
-			if thumb == "" {
-				thumb = cfg.Defaults.Thumb
+			thumb, autoThumbFound, err := resolveReplacementThumbnail(
+				filePath,
+				cmd.Flags().Changed("thumb"),
+				opts.thumb,
+				cfg.Defaults.Thumb,
+			)
+			if err != nil {
+				return err
 			}
-			if thumb != "" {
-				thumb, err = config.ExpandPath(thumb)
-				if err != nil {
-					return fmt.Errorf("expand thumb: %w", err)
-				}
-			}
+			printDetectedThumbnail(out, thumb, autoThumbFound)
 
 			captionProvided := cmd.Flags().Changed("caption")
 			if captionProvided && opts.clearCaption {
@@ -110,7 +110,7 @@ func newReuploadCommand() *cobra.Command {
 
 	cmd.Flags().IntVar(&opts.postID, "post-id", 0, "Message identifier to replace")
 	cmd.Flags().StringVar(&opts.caption, "caption", "", "Optional new caption")
-	cmd.Flags().StringVar(&opts.thumb, "thumb", "", "New thumbnail for this media")
+	cmd.Flags().StringVar(&opts.thumb, "thumb", "", "New thumbnail for this media (auto-detected from <file>-thumb.jpg/.jpeg if omitted)")
 	cmd.Flags().BoolVar(&opts.clearCaption, "clear-caption", false, "Remove the caption entirely")
 	cmd.Flags().BoolVar(&opts.clearCaption, "remove-caption", false, "Remove the caption entirely (alias)")
 	cmd.Flags().BoolVar(&opts.silent, "silent", false, "Edit message silently if possible")
