@@ -2,9 +2,11 @@ package telegram
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/charmbracelet/bubbles/progress"
 	tea "github.com/charmbracelet/bubbletea"
@@ -117,6 +119,8 @@ type progressFinishedMsg struct {
 type uploadProgressModel struct {
 	progress        progress.Model
 	percent         float64
+	terminalWidth   int
+	startedAt       time.Time
 	actionLabel     string
 	fileName        string
 	thumbName       string
@@ -134,6 +138,8 @@ func newUploadProgressModel(actionLabel, fileName, thumbName, captionPreview str
 	bar.ShowPercentage = true
 	return &uploadProgressModel{
 		progress:        bar,
+		terminalWidth:   progressBarWidth(barWidth),
+		startedAt:       time.Now(),
 		actionLabel:     actionLabel,
 		fileName:        fileName,
 		thumbName:       thumbName,
@@ -151,7 +157,8 @@ func (m *uploadProgressModel) Init() tea.Cmd {
 func (m *uploadProgressModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.progress.Width = progressBarWidth(msg.Width)
+		m.terminalWidth = progressBarWidth(msg.Width)
+		m.progress.Width = m.terminalWidth
 	case progressPercentMsg:
 		m.percent = msg.percent
 	case progressFinishedMsg:
@@ -191,6 +198,43 @@ func terminalWidthFromWriter(out io.Writer) (int, bool) {
 	return width, true
 }
 
+func estimateRemainingDuration(elapsed time.Duration, percent float64) (time.Duration, bool) {
+	if elapsed <= 0 || percent <= 0 || percent >= 1 {
+		return 0, false
+	}
+
+	remaining := time.Duration(float64(elapsed) * (1 - percent) / percent)
+	if remaining < 0 {
+		return 0, false
+	}
+	return remaining, true
+}
+
+func buildETALabel(remaining time.Duration, known bool) string {
+	if !known {
+		return "ETA --:-- "
+	}
+	totalSeconds := int(remaining.Round(time.Second).Seconds())
+	if totalSeconds < 0 {
+		totalSeconds = 0
+	}
+	hours := totalSeconds / 3600
+	minutes := (totalSeconds % 3600) / 60
+	seconds := totalSeconds % 60
+	if hours > 0 {
+		return fmt.Sprintf("ETA %d:%02d:%02d ", hours, minutes, seconds)
+	}
+	return fmt.Sprintf("ETA %02d:%02d ", minutes, seconds)
+}
+
+func progressContentWidth(totalWidth int, leftLabel string) int {
+	width := progressBarWidth(totalWidth) - lipgloss.Width(leftLabel)
+	if width < 1 {
+		return 1
+	}
+	return width
+}
+
 func (m *uploadProgressModel) View() string {
 	var b strings.Builder
 	b.WriteString(actionLineStyle.Render(m.actionLabel + " " + fileEmphasisStyle.Render(m.fileName)))
@@ -213,6 +257,10 @@ func (m *uploadProgressModel) View() string {
 			b.WriteString(errorLineStyle.Render("❌ " + m.statusMessage))
 		}
 	} else {
+		remaining, known := estimateRemainingDuration(time.Since(m.startedAt), m.percent)
+		etaLabel := buildETALabel(remaining, known)
+		m.progress.Width = progressContentWidth(m.terminalWidth, etaLabel)
+		b.WriteString(etaLineStyle.Render(etaLabel))
 		b.WriteString(m.progress.ViewAs(m.percent))
 	}
 	return b.String()
@@ -223,6 +271,7 @@ var (
 	actionLineStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("63"))
 	thumbLineStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("105"))
 	captionLineStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("222"))
+	etaLineStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
 	successLineStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("84")).Bold(true)
 	errorLineStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("204")).Bold(true)
 )
