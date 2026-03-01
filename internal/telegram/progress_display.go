@@ -10,7 +10,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/gotd/td/telegram/uploader"
+	"golang.org/x/term"
 )
+
+const defaultProgressBarWidth = 30
 
 // uploadProgressDisplay drives the Bubble Tea program that renders the upload UI.
 type uploadProgressDisplay struct {
@@ -26,7 +29,11 @@ func newUploadProgressDisplay(out io.Writer, actionLabel, fileName, thumbName, c
 	if out == nil {
 		return nil
 	}
-	model := newUploadProgressModel(actionLabel, fileName, thumbName, captionPreview, removingCaption)
+	width := defaultProgressBarWidth
+	if terminalWidth, ok := terminalWidthFromWriter(out); ok {
+		width = terminalWidth
+	}
+	model := newUploadProgressModel(actionLabel, fileName, thumbName, captionPreview, removingCaption, width)
 	prog := tea.NewProgram(model, tea.WithOutput(out), tea.WithInput(nil), tea.WithoutSignalHandler())
 
 	display := &uploadProgressDisplay{
@@ -122,8 +129,8 @@ type uploadProgressModel struct {
 	statusMessage   string
 }
 
-func newUploadProgressModel(actionLabel, fileName, thumbName, captionPreview string, removingCaption bool) *uploadProgressModel {
-	bar := progress.New(progress.WithDefaultGradient(), progress.WithWidth(30))
+func newUploadProgressModel(actionLabel, fileName, thumbName, captionPreview string, removingCaption bool, barWidth int) *uploadProgressModel {
+	bar := progress.New(progress.WithDefaultGradient(), progress.WithWidth(progressBarWidth(barWidth)))
 	bar.ShowPercentage = true
 	return &uploadProgressModel{
 		progress:        bar,
@@ -143,6 +150,8 @@ func (m *uploadProgressModel) Init() tea.Cmd {
 
 func (m *uploadProgressModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.progress.Width = progressBarWidth(msg.Width)
 	case progressPercentMsg:
 		m.percent = msg.percent
 	case progressFinishedMsg:
@@ -152,6 +161,34 @@ func (m *uploadProgressModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 	return m, nil
+}
+
+func progressBarWidth(width int) int {
+	if width <= 0 {
+		return defaultProgressBarWidth
+	}
+	return width
+}
+
+func terminalWidthFromWriter(out io.Writer) (int, bool) {
+	fileWithFD, ok := out.(interface{ Fd() uintptr })
+	if !ok {
+		return 0, false
+	}
+
+	fd := int(fileWithFD.Fd())
+	if !term.IsTerminal(fd) {
+		return 0, false
+	}
+
+	width, _, err := term.GetSize(fd)
+	if err != nil {
+		return 0, false
+	}
+	if width <= 0 {
+		return 0, false
+	}
+	return width, true
 }
 
 func (m *uploadProgressModel) View() string {
