@@ -131,7 +131,7 @@ type SendMessageRequest struct {
 	Message   string
 	ParseMode string // "MarkdownV2", "HTML", or "" for plain text
 	Silent    bool
-	NoWebpage bool   // When true, disables link preview generation
+	NoWebpage bool // When true, disables link preview generation
 }
 
 // EditMessageRequest represents text-only message editing.
@@ -141,7 +141,7 @@ type EditMessageRequest struct {
 	Message   string
 	ParseMode string // "MarkdownV2", "HTML", or "" for plain text
 	Silent    bool
-	NoWebpage bool   // When true, disables link preview generation
+	NoWebpage bool // When true, disables link preview generation
 }
 
 // ListChatsRequest describes pagination/search filters for chats.
@@ -923,7 +923,13 @@ func (s *Service) resolveChat(ctx context.Context, api *tg.Client, identifier st
 
 	resolver := peer.DefaultResolver(api)
 	promise := peer.Resolve(resolver, id)
-	inputPeer, err := promise(ctx)
+	var inputPeer tg.InputPeerClass
+	onFlood := s.buildFloodLogger(id, "resolving")
+	err := callWithFloodRetry(ctx, func() error {
+		var callErr error
+		inputPeer, callErr = promise(ctx)
+		return callErr
+	}, onFlood)
 	if err != nil {
 		return nil, fmt.Errorf("resolve channel %q: %w", id, err)
 	}
@@ -946,10 +952,16 @@ func (s *Service) resolveChat(ctx context.Context, api *tg.Client, identifier st
 }
 
 func (s *Service) fetchMessage(ctx context.Context, api *tg.Client, channel *channelPeer, id int) (*tg.Message, error) {
-	resp, err := api.ChannelsGetMessages(ctx, &tg.ChannelsGetMessagesRequest{
-		Channel: channel.channel,
-		ID:      []tg.InputMessageClass{&tg.InputMessageID{ID: id}},
-	})
+	var resp tg.MessagesMessagesClass
+	onFlood := s.buildFloodLogger(channel.display, fmt.Sprintf("message #%d", id))
+	err := callWithFloodRetry(ctx, func() error {
+		var callErr error
+		resp, callErr = api.ChannelsGetMessages(ctx, &tg.ChannelsGetMessagesRequest{
+			Channel: channel.channel,
+			ID:      []tg.InputMessageClass{&tg.InputMessageID{ID: id}},
+		})
+		return callErr
+	}, onFlood)
 	if err != nil {
 		return nil, err
 	}
@@ -1035,14 +1047,20 @@ func (s *Service) lookupChannelDialog(ctx context.Context, api *tg.Client, chann
 	offsetPeer := tg.InputPeerClass(&tg.InputPeerEmpty{})
 	offsetID := 0
 	offsetDate := 0
+	onFlood := s.buildFloodLogger(fmt.Sprintf("%d", channelID), "dialogs")
 	for {
-		resp, err := api.MessagesGetDialogs(ctx, &tg.MessagesGetDialogsRequest{
-			OffsetDate: offsetDate,
-			OffsetID:   offsetID,
-			OffsetPeer: offsetPeer,
-			Limit:      100,
-			Hash:       0,
-		})
+		var resp tg.MessagesDialogsClass
+		err := callWithFloodRetry(ctx, func() error {
+			var callErr error
+			resp, callErr = api.MessagesGetDialogs(ctx, &tg.MessagesGetDialogsRequest{
+				OffsetDate: offsetDate,
+				OffsetID:   offsetID,
+				OffsetPeer: offsetPeer,
+				Limit:      100,
+				Hash:       0,
+			})
+			return callErr
+		}, onFlood)
 		if err != nil {
 			return nil, fmt.Errorf("get dialogs: %w", err)
 		}
