@@ -94,6 +94,7 @@ func newUploadCommand() *cobra.Command {
 
 				caption := opts.caption
 				captionSet := captionProvided
+				usedAutoCaption := false
 				if opts.autoCaption && autoCaptionRe != nil {
 					name := strings.TrimSuffix(filepath.Base(filePath), filepath.Ext(filePath))
 					rg := autoCaptionRe.FindStringSubmatch(name)
@@ -103,7 +104,9 @@ func newUploadCommand() *cobra.Command {
 						caption = name
 					}
 					captionSet = true
+					usedAutoCaption = true
 				}
+				logAutoCaption(cmd.ErrOrStderr(), usedAutoCaption, caption)
 
 				if err := svc.Upload(cmd.Context(), telegram.UploadRequest{
 					ChatId:     chat,

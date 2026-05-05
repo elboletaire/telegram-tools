@@ -230,6 +230,7 @@ func runMediaUpload(ctx context.Context, cmd *cobra.Command, args []string, opts
 		// Determine caption for this file
 		caption := message
 		captionSet := messageProvided
+		usedAutoCaption := false
 		if opts.autoCaption && autoCaptionRe != nil {
 			name := strings.TrimSuffix(filepath.Base(filePath), filepath.Ext(filePath))
 			rg := autoCaptionRe.FindStringSubmatch(name)
@@ -239,7 +240,9 @@ func runMediaUpload(ctx context.Context, cmd *cobra.Command, args []string, opts
 				caption = name
 			}
 			captionSet = true
+			usedAutoCaption = true
 		}
+		logAutoCaption(cmd.ErrOrStderr(), usedAutoCaption, caption)
 
 		// Upload the file
 		if err := svc.Upload(ctx, telegram.UploadRequest{
