@@ -1189,7 +1189,11 @@ func (s *Service) lookupChannelDialog(ctx context.Context, api *tg.Client, chann
 	offsetID := 0
 	offsetDate := 0
 	onFlood := s.buildFloodLogger(fmt.Sprintf("%d", channelID), "dialogs")
+	throttle := newThrottle(500 * time.Millisecond)
 	for {
+		if err := throttle.Wait(ctx); err != nil {
+			return nil, err
+		}
 		var resp tg.MessagesDialogsClass
 		err := callWithFloodRetry(ctx, func() error {
 			var callErr error
