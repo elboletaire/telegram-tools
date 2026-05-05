@@ -120,22 +120,24 @@ func TestPeerDiskCache_Load_WrongVersion(t *testing.T) {
 func TestPeerDiskCache_RoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "peers.json")
+	const channelID int64 = 9007199254740993
+	const accessHash int64 = -9223372036854775807
 
 	c := newPeerDiskCache()
 	peer := &channelPeer{
-		peer:    &tg.InputPeerChannel{ChannelID: 42, AccessHash: 999},
-		channel: &tg.InputChannel{ChannelID: 42, AccessHash: 999},
+		peer:    &tg.InputPeerChannel{ChannelID: channelID, AccessHash: accessHash},
+		channel: &tg.InputChannel{ChannelID: channelID, AccessHash: accessHash},
 		display: "@test",
 	}
 	c.set("@test", peer)
 
 	// Second key for same channel (chan: prefix)
 	peer2 := &channelPeer{
-		peer:    &tg.InputPeerChannel{ChannelID: 42, AccessHash: 999},
-		channel: &tg.InputChannel{ChannelID: 42, AccessHash: 999},
+		peer:    &tg.InputPeerChannel{ChannelID: channelID, AccessHash: accessHash},
+		channel: &tg.InputChannel{ChannelID: channelID, AccessHash: accessHash},
 		display: "@test",
 	}
-	c.set("chan:42", peer2)
+	c.set("chan:9007199254740993", peer2)
 
 	if err := c.save(path); err != nil {
 		t.Fatalf("save: %v", err)
@@ -153,8 +155,11 @@ func TestPeerDiskCache_RoundTrip(t *testing.T) {
 	if f.Version != 1 {
 		t.Errorf("expected version 1, got %d", f.Version)
 	}
-	if f.Peers["@test"].ChannelID != 42 {
-		t.Errorf("expected channel_id 42, got %d", f.Peers["@test"].ChannelID)
+	if f.Peers["@test"].ChannelID != channelID {
+		t.Errorf("expected channel_id %d, got %d", channelID, f.Peers["@test"].ChannelID)
+	}
+	if f.Peers["@test"].AccessHash != accessHash {
+		t.Errorf("expected access_hash %d, got %d", accessHash, f.Peers["@test"].AccessHash)
 	}
 
 	// Reload and verify
@@ -162,11 +167,11 @@ func TestPeerDiskCache_RoundTrip(t *testing.T) {
 	if err := c2.load(path); err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if p, ok := c2.get("@test"); !ok || p.channel.ChannelID != 42 {
+	if p, ok := c2.get("@test"); !ok || p.channel.ChannelID != channelID || p.channel.AccessHash != accessHash {
 		t.Fatal("round-trip failed for @test")
 	}
-	if p, ok := c2.get("chan:42"); !ok || p.channel.ChannelID != 42 {
-		t.Fatal("round-trip failed for chan:42")
+	if p, ok := c2.get("chan:9007199254740993"); !ok || p.channel.ChannelID != channelID || p.channel.AccessHash != accessHash {
+		t.Fatal("round-trip failed for chan:9007199254740993")
 	}
 }
 
@@ -209,6 +214,14 @@ func TestPeerDiskCache_Set_NilPeer(t *testing.T) {
 	c.set("key", nil)
 	if _, ok := c.get("key"); ok {
 		t.Error("expected nil peer not to be stored")
+	}
+}
+
+func TestPeerDiskCache_Set_NilChannel(t *testing.T) {
+	c := newPeerDiskCache()
+	c.set("key", &channelPeer{})
+	if _, ok := c.get("key"); ok {
+		t.Error("expected nil channel not to be stored")
 	}
 }
 

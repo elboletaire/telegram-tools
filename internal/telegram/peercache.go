@@ -86,9 +86,22 @@ func (c *peerDiskCache) save(path string) error {
 		return fmt.Errorf("create peer cache dir: %w", err)
 	}
 
-	tmpPath := path + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0o600); err != nil {
+	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return fmt.Errorf("create peer cache temp: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer func() { _ = os.Remove(tmpPath) }()
+
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
 		return fmt.Errorf("write peer cache temp: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close peer cache temp: %w", err)
+	}
+	if err := os.Chmod(tmpPath, 0o600); err != nil {
+		return fmt.Errorf("chmod peer cache temp: %w", err)
 	}
 	if err := os.Rename(tmpPath, path); err != nil {
 		return fmt.Errorf("rename peer cache: %w", err)
@@ -111,7 +124,7 @@ func (c *peerDiskCache) get(key string) (*channelPeer, bool) {
 
 // set adds or overwrites a peer entry under the given key.
 func (c *peerDiskCache) set(key string, peer *channelPeer) {
-	if peer == nil || key == "" {
+	if peer == nil || peer.channel == nil || key == "" {
 		return
 	}
 	c.entries[key] = peerCacheEntry{

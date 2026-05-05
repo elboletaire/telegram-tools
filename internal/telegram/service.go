@@ -1076,21 +1076,36 @@ func (s *Service) resolveChat(ctx context.Context, api *tg.Client, identifier st
 		return peer, nil
 	}
 
+	ident, isNumericID := parseChatIdentifier(id)
+	cacheKey := ""
+	if isNumericID {
+		cacheKey = ident.cacheKey()
+		if cacheKey != "" && cacheKey != id {
+			if peer := s.cachedPeer(cacheKey); peer != nil {
+				s.cachePeer(peer, id)
+				return peer, nil
+			}
+		}
+	}
+
 	// Check persistent disk cache; promote to memory on hit.
 	if s.diskCache != nil {
 		if peer, ok := s.diskCache.get(id); ok {
 			s.cachePeer(peer, id)
-			// Also cache under the chan:ID key for numeric identifiers.
-			if ident, ok := parseChatIdentifier(id); ok {
-				if ck := ident.cacheKey(); ck != "" && ck != id {
-					s.cachePeer(peer, ck)
-				}
+			if cacheKey != "" && cacheKey != id {
+				s.cachePeer(peer, cacheKey)
 			}
 			return peer, nil
 		}
+		if cacheKey != "" && cacheKey != id {
+			if peer, ok := s.diskCache.get(cacheKey); ok {
+				s.cachePeer(peer, id, cacheKey)
+				return peer, nil
+			}
+		}
 	}
 
-	if ident, ok := parseChatIdentifier(id); ok {
+	if isNumericID {
 		peer, err := s.resolveByChatID(ctx, api, ident)
 		if err != nil {
 			return nil, err
