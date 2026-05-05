@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -90,19 +91,16 @@ func filterPosts(posts []telegram.PostInfo, mediaType string, filename string) [
 		return posts
 	}
 
+	lowerFilename := strings.ToLower(filename)
 	filtered := make([]telegram.PostInfo, 0, len(posts))
 	for _, post := range posts {
 		// Check media type filter
-		if mediaType != "" && post.MediaType != mediaType {
+		if mediaType != "" && !postMatchesMediaType(post.MediaType, mediaType) {
 			continue
 		}
 
 		// Check filename filter (case-insensitive substring match)
-		// Note: This requires access to the actual file metadata
-		// For now, we'll skip filename filtering as it requires additional API calls
-		// This can be enhanced later if filename is added to PostInfo
-		if filename != "" {
-			// TODO: Implement filename filtering when metadata is available
+		if filename != "" && !strings.Contains(strings.ToLower(post.Filename), lowerFilename) {
 			continue
 		}
 
@@ -110,4 +108,20 @@ func filterPosts(posts []telegram.PostInfo, mediaType string, filename string) [
 	}
 
 	return filtered
+}
+
+func postMatchesMediaType(postMedia, mediaType string) bool {
+	postMedia = strings.ToLower(strings.TrimSpace(postMedia))
+	mediaType = strings.ToLower(strings.TrimSpace(mediaType))
+
+	switch mediaType {
+	case "video":
+		return postMedia == "video" || strings.HasPrefix(postMedia, "video/")
+	case "photo":
+		return postMedia == "photo"
+	case "document":
+		return postMedia == "document" || (strings.Contains(postMedia, "/") && !strings.HasPrefix(postMedia, "video/"))
+	default:
+		return postMedia == mediaType
+	}
 }

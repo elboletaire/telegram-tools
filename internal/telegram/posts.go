@@ -65,3 +65,20 @@ func describeMedia(media tg.MessageMediaClass) string {
 		return fmt.Sprintf("%T", m)
 	}
 }
+
+func extractMediaFilename(media tg.MessageMediaClass) string {
+	documentMedia, ok := media.(*tg.MessageMediaDocument)
+	if !ok {
+		return ""
+	}
+	document, ok := documentMedia.Document.AsNotEmpty()
+	if !ok {
+		return ""
+	}
+	for _, attr := range document.Attributes {
+		if filename, ok := attr.(*tg.DocumentAttributeFilename); ok {
+			return strings.TrimSpace(filename.FileName)
+		}
+	}
+	return ""
+}
