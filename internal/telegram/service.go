@@ -52,6 +52,7 @@ type Service struct {
 
 	peerMu    sync.RWMutex
 	peerCache map[string]*channelPeer
+	diskCache *peerDiskCache // persistent peer cache (loaded from disk)
 }
 
 type ioStreams struct {
@@ -80,6 +81,19 @@ func NewService(cfg *config.Config, opts ...ServiceOption) *Service {
 		opt(s)
 	}
 	s.prompter = newPrompter(s.io.in, s.io.out, s.io.err)
+
+	// Load persistent peer cache from disk (best-effort).
+	s.diskCache = newPeerDiskCache()
+	if cfg != nil {
+		if err := s.diskCache.load(cfg.PeerCacheFile()); err != nil {
+			// Log to stderr but don't fail — cache is optional.
+			if s.io.err != nil {
+				fmt.Fprintf(s.io.err, "warning: could not load peer cache: %v\n", err)
+			}
+			s.diskCache = newPeerDiskCache()
+		}
+	}
+
 	return s
 }
 
@@ -246,6 +260,7 @@ func (s *Service) Upload(ctx context.Context, req UploadRequest) error {
 			return nil
 		}, onFlood)
 		if err != nil {
+			s.evictPeerIfStale(channel, err)
 			return err
 		}
 
@@ -340,6 +355,7 @@ func (s *Service) SendMessage(ctx context.Context, req SendMessageRequest) (int,
 			return nil
 		}, onFlood)
 		if err != nil {
+			s.evictPeerIfStale(channel, err)
 			return err
 		}
 
@@ -398,10 +414,12 @@ func (s *Service) EditMessage(ctx context.Context, req EditMessageRequest) error
 
 		// Execute with flood retry
 		onFlood := s.buildFloodLogger(req.ChatId, fmt.Sprintf("message #%d", req.PostId))
-		return callWithFloodRetry(ctx, func() error {
-			_, err := api.MessagesEditMessage(ctx, edit)
-			return err
+		err = callWithFloodRetry(ctx, func() error {
+			_, callErr := api.MessagesEditMessage(ctx, edit)
+			return callErr
 		}, onFlood)
+		s.evictPeerIfStale(channel, err)
+		return err
 	})
 }
 
@@ -448,6 +466,7 @@ func (s *Service) ReplaceMedia(ctx context.Context, req ReplaceRequest) error {
 		case !req.CaptionSet:
 			original, err := s.fetchMessage(ctx, api, channel, req.PostId)
 			if err != nil {
+				s.evictPeerIfStale(channel, err)
 				return err
 			}
 			caption = original.Message
@@ -474,10 +493,12 @@ func (s *Service) ReplaceMedia(ctx context.Context, req ReplaceRequest) error {
 		}
 
 		onFlood := s.buildFloodLogger(req.ChatId, fileName)
-		if err := callWithFloodRetry(ctx, func() error {
-			_, err := api.MessagesEditMessage(ctx, edit)
-			return err
-		}, onFlood); err != nil {
+		err = callWithFloodRetry(ctx, func() error {
+			_, callErr := api.MessagesEditMessage(ctx, edit)
+			return callErr
+		}, onFlood)
+		s.evictPeerIfStale(channel, err)
+		if err != nil {
 			return err
 		}
 
@@ -617,6 +638,7 @@ func (s *Service) ListPosts(ctx context.Context, req ListPostsRequest) ([]PostIn
 					}
 					continue
 				}
+				s.evictPeerIfStale(channel, err)
 				return err
 			}
 
@@ -740,6 +762,7 @@ func (s *Service) SearchPosts(ctx context.Context, req SearchPostsRequest) ([]Po
 						req.OnFloodWait(delay+time.Second, totalFetched)
 					}
 				}
+				s.evictPeerIfStale(channel, err)
 				return err
 			}
 
@@ -1053,12 +1076,26 @@ func (s *Service) resolveChat(ctx context.Context, api *tg.Client, identifier st
 		return peer, nil
 	}
 
+	// Check persistent disk cache; promote to memory on hit.
+	if s.diskCache != nil {
+		if peer, ok := s.diskCache.get(id); ok {
+			s.cachePeer(peer, id)
+			// Also cache under the chan:ID key for numeric identifiers.
+			if ident, ok := parseChatIdentifier(id); ok {
+				if ck := ident.cacheKey(); ck != "" && ck != id {
+					s.cachePeer(peer, ck)
+				}
+			}
+			return peer, nil
+		}
+	}
+
 	if ident, ok := parseChatIdentifier(id); ok {
 		peer, err := s.resolveByChatID(ctx, api, ident)
 		if err != nil {
 			return nil, err
 		}
-		s.cachePeer(peer, id, ident.cacheKey())
+		s.cacheAndPersistPeer(peer, id, ident.cacheKey())
 		return peer, nil
 	}
 
@@ -1088,7 +1125,7 @@ func (s *Service) resolveChat(ctx context.Context, api *tg.Client, identifier st
 		channel: &tg.InputChannel{ChannelID: asChannel.ChannelID, AccessHash: asChannel.AccessHash},
 		display: id,
 	}
-	s.cachePeer(peerInfo, id)
+	s.cacheAndPersistPeer(peerInfo, id)
 	return peerInfo, nil
 }
 
@@ -1334,4 +1371,51 @@ func (s *Service) cachePeer(peer *channelPeer, keys ...string) {
 		}
 		s.peerCache[key] = peer
 	}
+}
+
+// cacheAndPersistPeer stores the peer in the in-memory cache and writes it
+// through to the on-disk peer cache.
+func (s *Service) cacheAndPersistPeer(peer *channelPeer, keys ...string) {
+	s.cachePeer(peer, keys...)
+	if s.diskCache != nil {
+		for _, key := range keys {
+			if key == "" {
+				continue
+			}
+			s.diskCache.set(key, peer)
+		}
+		// Best-effort: ignore errors saving the disk cache.
+		_ = s.diskCache.save(s.cfg.PeerCacheFile())
+	}
+}
+
+// evictPeerIfStale checks whether err indicates a stale access-hash error
+// (CHANNEL_INVALID, CHANNEL_PRIVATE, or MSG_ID_INVALID).  If so, it removes
+// the peer's channelID from both the in-memory and disk caches and returns true.
+func (s *Service) evictPeerIfStale(channel *channelPeer, err error) bool {
+	if err == nil || channel == nil || channel.channel == nil {
+		return false
+	}
+	if !tgerr.Is(err, "CHANNEL_INVALID", "CHANNEL_PRIVATE", "MSG_ID_INVALID") {
+		return false
+	}
+
+	channelID := channel.channel.ChannelID
+
+	// Evict from in-memory cache.
+	s.peerMu.Lock()
+	for key, peer := range s.peerCache {
+		if peer.channel != nil && peer.channel.ChannelID == channelID {
+			delete(s.peerCache, key)
+		}
+	}
+	s.peerMu.Unlock()
+
+	// Evict from disk cache.
+	if s.diskCache != nil {
+		s.diskCache.evict(channelID)
+		_ = s.diskCache.save(s.cfg.PeerCacheFile())
+	}
+
+	return true
 }

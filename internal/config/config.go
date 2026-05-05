@@ -64,6 +64,12 @@ func (c *Config) SessionFile() string {
 	return c.Session.File
 }
 
+// PeerCacheFile returns the absolute path to the peer cache JSON file,
+// located in the same directory as the session file.
+func (c *Config) PeerCacheFile() string {
+	return filepath.Join(filepath.Dir(c.SessionFile()), "peers.json")
+}
+
 // DefaultConfigFile returns the user level configuration file.
 func DefaultConfigFile() string {
 	home := mustUserHome()
