@@ -2,9 +2,14 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
+	"time"
 
+	"github.com/gotd/td/tg"
 	"github.com/spf13/cobra"
 
+	"github.com/elboletaire/ttools/internal/floodwait"
+	"github.com/elboletaire/ttools/internal/telegram"
 	"github.com/elboletaire/ttools/internal/ui/postslist"
 )
 
@@ -61,35 +66,93 @@ Examples:
 				searchText = args[0]
 			}
 
-			// Determine media filter
-			mediaFilter := ""
-			if opts.video {
-				mediaFilter = "video"
-			} else if opts.photo {
-				mediaFilter = "photo"
-			} else if opts.document {
-				mediaFilter = "document"
-			}
+			hasMediaFilter := opts.video || opts.photo || opts.document
+			var posts []telegram.PostInfo
 
-			// Fetch posts using the shared helper
-			req := fetchPostsRequest{
-				ChatId:      chat,
-				Limit:       sharedOpts.limit,
-				Search:      searchText,
-				MediaFilter: mediaFilter,
-				FileFilter:  opts.filename,
-			}
+			if searchText == "" && !hasMediaFilter {
+				// With no server-side criteria, keep the old history-based behavior so
+				// `posts find` with no arguments lists posts instead of issuing an
+				// empty messages.search query.
+				req := fetchPostsRequest{
+					ChatId:     chat,
+					Limit:      sharedOpts.limit,
+					FileFilter: opts.filename,
+				}
+				posts, err = fetchPostsWithProgress(
+					cmd.Context(),
+					cfg,
+					out,
+					cmd.InOrStdin(),
+					cmd.ErrOrStderr(),
+					req,
+				)
+				if err != nil {
+					return err
+				}
+			} else {
+				// Build server-side media filter for messages.search
+				mediaFilter := ""
+				var searchFilter tg.MessagesFilterClass = &tg.InputMessagesFilterEmpty{}
+				if opts.video {
+					mediaFilter = "video"
+					searchFilter = &tg.InputMessagesFilterVideo{}
+				} else if opts.photo {
+					mediaFilter = "photo"
+					searchFilter = &tg.InputMessagesFilterPhotos{}
+				} else if opts.document {
+					mediaFilter = "document"
+					searchFilter = &tg.InputMessagesFilterDocument{}
+				}
 
-			posts, err := fetchPostsWithProgress(
-				cmd.Context(),
-				cfg,
-				out,
-				cmd.InOrStdin(),
-				cmd.ErrOrStderr(),
-				req,
-			)
-			if err != nil {
-				return err
+				// Use server-side search
+				fmt.Fprintln(out, "Searching...")
+				svc := telegram.NewService(cfg, telegram.WithIO(cmd.InOrStdin(), out, cmd.ErrOrStderr()))
+				searchReq := telegram.SearchPostsRequest{
+					ChatId: chat,
+					Limit:  sharedOpts.limit,
+					Query:  searchText,
+					Filter: searchFilter,
+					OnBatch: func(total int) {
+						fmt.Fprintf(out, "\rSearching... %d fetched", total)
+					},
+					OnFloodWait: func(delay time.Duration, total int) {
+						floodwait.Start(cmd.Context(), out, delay, func(remaining time.Duration) string {
+							return fmt.Sprintf("\rHit rate limit, retrying in %.2fs after %d fetched...", remaining.Seconds(), total)
+						})
+					},
+				}
+
+				posts, err = svc.SearchPosts(cmd.Context(), searchReq)
+				if err != nil {
+					if searchText == "" && tg.IsSearchQueryEmpty(err) {
+						req := fetchPostsRequest{
+							ChatId:      chat,
+							Limit:       sharedOpts.limit,
+							MediaFilter: mediaFilter,
+							FileFilter:  opts.filename,
+						}
+						posts, err = fetchPostsWithProgress(
+							cmd.Context(),
+							cfg,
+							out,
+							cmd.InOrStdin(),
+							cmd.ErrOrStderr(),
+							req,
+						)
+						if err != nil {
+							return err
+						}
+					} else {
+						return err
+					}
+				} else {
+					fmt.Fprintln(out)
+
+					// Apply client-side filename filter (cannot be done server-side)
+					if opts.filename != "" {
+						posts = filterPostsByFilename(posts, opts.filename)
+					}
+				}
 			}
 
 			if len(posts) == 0 {
@@ -116,4 +179,19 @@ Examples:
 	cmd.Flags().StringVar(&opts.filename, "filename", "", "Search in attachment filenames")
 
 	return cmd
+}
+
+// filterPostsByFilename filters posts by attachment filename (case-insensitive substring match).
+func filterPostsByFilename(posts []telegram.PostInfo, filename string) []telegram.PostInfo {
+	if filename == "" {
+		return posts
+	}
+	lower := strings.ToLower(filename)
+	filtered := make([]telegram.PostInfo, 0, len(posts))
+	for _, post := range posts {
+		if strings.Contains(strings.ToLower(post.Filename), lower) {
+			filtered = append(filtered, post)
+		}
+	}
+	return filtered
 }

@@ -117,11 +117,25 @@ type ListPostsRequest struct {
 	OnFloodWait func(delay time.Duration, total int)
 }
 
+// SearchPostsRequest describes server-side search parameters.
+type SearchPostsRequest struct {
+	ChatId string
+	Limit  int    // 0 = all matching
+	Query  string // search text; may be empty when filtering by media type
+	Filter tg.MessagesFilterClass
+	// OnBatch, if set, is called after each batch is processed with the total
+	// number of messages fetched so far.
+	OnBatch func(total int)
+	// OnFloodWait, if set, is called before waiting on Telegram FLOOD_WAIT.
+	OnFloodWait func(delay time.Duration, total int)
+}
+
 // PostInfo contains the minimal data required for CLI rendering.
 type PostInfo struct {
 	ID        int
 	Date      time.Time
 	MediaType string
+	Filename  string
 	Caption   string
 }
 
@@ -638,6 +652,7 @@ func (s *Service) ListPosts(ctx context.Context, req ListPostsRequest) ([]PostIn
 					ID:        msg.ID,
 					Date:      time.Unix(int64(msg.Date), 0).UTC(),
 					MediaType: describeMedia(msg.Media),
+					Filename:  extractMediaFilename(msg.Media),
 					Caption:   caption,
 				})
 			}
@@ -647,6 +662,132 @@ func (s *Service) ListPosts(ctx context.Context, req ListPostsRequest) ([]PostIn
 			}
 
 			offsetID = lastID
+		}
+
+		return nil
+	})
+	return posts, err
+}
+
+// SearchPosts returns posts matching the query and/or filter using server-side search.
+func (s *Service) SearchPosts(ctx context.Context, req SearchPostsRequest) ([]PostInfo, error) {
+	var posts []PostInfo
+	err := s.run(ctx, func(ctx context.Context, api *tg.Client) error {
+		channel, err := s.resolveChat(ctx, api, req.ChatId)
+		if err != nil {
+			return err
+		}
+
+		limit := req.Limit
+		chunkLimit := 100
+		if limit > 0 && limit < chunkLimit {
+			chunkLimit = limit
+		}
+
+		offsetID := 0
+		prevOffsetID := -1
+		totalFetched := 0
+		filter := req.Filter
+		if filter == nil {
+			filter = &tg.InputMessagesFilterEmpty{}
+		}
+
+		throttle := newThrottle(750 * time.Millisecond)
+
+		for {
+			if err := throttle.Wait(ctx); err != nil {
+				return err
+			}
+
+			requestLimit := chunkLimit
+			if limit > 0 {
+				remaining := limit - totalFetched
+				if remaining <= 0 {
+					break
+				}
+				if remaining < requestLimit {
+					requestLimit = remaining
+				}
+			}
+
+			onFlood := func(ctx context.Context, delay time.Duration) {
+				if req.OnFloodWait != nil {
+					req.OnFloodWait(delay, totalFetched)
+				}
+				s.buildFloodLogger(req.ChatId, "search")(ctx, delay)
+			}
+
+			var resp tg.MessagesMessagesClass
+			err := callWithFloodRetry(ctx, func() error {
+				var callErr error
+				resp, callErr = api.MessagesSearch(ctx, &tg.MessagesSearchRequest{
+					Peer:      channel.peer,
+					Q:         req.Query,
+					Filter:    filter,
+					Limit:     requestLimit,
+					OffsetID:  offsetID,
+					AddOffset: 0,
+					MaxID:     0,
+					MinID:     0,
+					Hash:      0,
+				})
+				return callErr
+			}, onFlood)
+
+			if err != nil {
+				if req.OnFloodWait != nil {
+					if delay, ok := tgerr.AsFloodWait(err); ok {
+						req.OnFloodWait(delay+time.Second, totalFetched)
+					}
+				}
+				return err
+			}
+
+			messages, err := collectMessages(resp)
+			if err != nil {
+				return err
+			}
+			if len(messages) == 0 {
+				break
+			}
+
+			lastID := messages[len(messages)-1].ID
+			if lastID == offsetID || lastID == prevOffsetID {
+				// Avoid infinite loops if the server returns the same page.
+				break
+			}
+			prevOffsetID = offsetID
+
+			for _, msg := range messages {
+				posts = append(posts, PostInfo{
+					ID:        msg.ID,
+					Date:      time.Unix(int64(msg.Date), 0).UTC(),
+					MediaType: describeMedia(msg.Media),
+					Filename:  extractMediaFilename(msg.Media),
+					Caption:   strings.TrimSpace(msg.Message),
+				})
+			}
+
+			totalFetched += len(messages)
+
+			if req.OnBatch != nil {
+				req.OnBatch(totalFetched)
+			}
+
+			// Paginate: Telegram's messages.search returns messages sorted
+			// by date descending. Set offsetID to the lowest message ID from
+			// this batch to get older messages on the next page.
+			offsetID = lastID
+
+			// Stop if we've reached the requested limit
+			if limit > 0 && totalFetched >= limit {
+				break
+			}
+
+			// Stop if we got fewer messages than requested (last page)
+			if len(messages) < requestLimit {
+				break
+			}
 		}
 
 		return nil
