@@ -192,11 +192,11 @@ func runMediaUpload(ctx context.Context, cmd *cobra.Command, args []string, opts
 	// Compile autocaption regex if needed
 	var autoCaptionRe *regexp.Regexp
 	if opts.autoCaption {
-		autoCaptionRe, err := regexp.Compile(opts.autoCaptionRegex)
+		re, err := regexp.Compile(opts.autoCaptionRegex)
 		if err != nil {
 			return fmt.Errorf("compile autocaption regex: %w", err)
 		}
-		opts.autoCaptionRegex = autoCaptionRe.String()
+		autoCaptionRe = re
 	}
 
 	svc := telegram.NewService(cfg, telegram.WithIO(cmd.InOrStdin(), out, cmd.ErrOrStderr()))
@@ -242,7 +242,7 @@ func runMediaUpload(ctx context.Context, cmd *cobra.Command, args []string, opts
 			captionSet = true
 			usedAutoCaption = true
 		}
-		logAutoCaption(cmd.ErrOrStderr(), usedAutoCaption, caption)
+		logAutoCaption(out, usedAutoCaption, caption)
 
 		// Upload the file
 		if err := svc.Upload(ctx, telegram.UploadRequest{
