@@ -31,6 +31,18 @@ const (
 	mediaKindVideo
 )
 
+// Telegram splits uploads into at most maxUploadParts parts, and every part
+// size must divide maxUploadPartSize. gotd defaults to 128KB parts, which caps
+// uploads at ~500MB: anything bigger sends an out-of-range file_total_parts and
+// the server rejects the very first part with FILE_PARTS_INVALID.
+//
+// See https://core.telegram.org/api/files#uploading-files.
+const (
+	defaultUploadPartSize = 128 * 1024
+	maxUploadPartSize     = 524288
+	maxUploadParts        = 4000
+)
+
 type mediaMetadata struct {
 	Kind     mediaKind
 	MIME     string
@@ -42,6 +54,13 @@ type mediaMetadata struct {
 
 func (s *Service) prepareMedia(ctx context.Context, api *tg.Client, req mediaRequest) (tg.InputMediaClass, error) {
 	upload := uploader.NewUploader(api)
+	if info, statErr := os.Stat(req.FilePath); statErr == nil {
+		size := info.Size()
+		upload = upload.WithPartSize(uploadPartSize(size))
+		if uploadParts(size, maxUploadPartSize) > maxUploadParts && s.io.err != nil {
+			fmt.Fprintf(s.io.err, "warning: %s exceeds the ~2GB upload limit, Telegram may reject it\n", filepath.Base(req.FilePath))
+		}
+	}
 	if req.Progress != nil {
 		upload = upload.WithProgress(req.Progress)
 	}
@@ -117,6 +136,23 @@ func (s *Service) prepareMedia(ctx context.Context, api *tg.Client, req mediaReq
 		}
 		return media, nil
 	}
+}
+
+// uploadPartSize returns the smallest valid part size that keeps a file of the
+// given size within Telegram's part count limit.
+func uploadPartSize(size int64) int {
+	partSize := defaultUploadPartSize
+	for partSize < maxUploadPartSize && uploadParts(size, partSize) > maxUploadParts {
+		partSize *= 2
+	}
+	return partSize
+}
+
+func uploadParts(size int64, partSize int) int64 {
+	if size <= 0 || partSize <= 0 {
+		return 0
+	}
+	return (size + int64(partSize) - 1) / int64(partSize)
 }
 
 func analyzeMedia(ctx context.Context, path string) (mediaMetadata, error) {
