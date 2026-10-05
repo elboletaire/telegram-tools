@@ -140,7 +140,7 @@ ttools posts new --message-file post.md --dry-run
 ```bash
 ttools posts new video.mp4 --message "My caption"
 ttools posts new *.mp4 --autocaption   # caption from each file name
-ttools posts new *.jpg --group         # a single album
+ttools posts new *.jpg --group         # albums of up to 10 files
 ```
 
 **Edit posts**
@@ -172,6 +172,10 @@ Run any command with `--help` to see all its options.
 - `--dry-run` shows each message as it would be sent, with its length, and
   needs no credentials. Use `--color=always` or `--color=never` to override
   color detection (`NO_COLOR` is honoured).
+- `--group` uploads files as albums. Telegram allows up to 10 files per album,
+  so more are split into balanced albums (11 files → 6 + 5). Photos and videos
+  can be mixed; documents and audio only go with their own kind. A `--message`
+  captions the whole album, while `--autocaption` captions every file.
 - `--silent` sends without a notification and `--no-preview` disables link
   previews.
 

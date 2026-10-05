@@ -74,7 +74,10 @@ Message input sources (in priority order):
 MEDIA UPLOADS:
 Use --file flag or provide file paths as arguments:
   - Supports multiple files (uploaded as separate posts by default)
-  - Use --group to upload multiple files as a single grouped post/album
+  - Use --group to upload them as an album (up to 10 files per album, more are
+    split into balanced albums; photos and videos can be mixed, documents and
+    audio only with their own kind). --message captions the album; with
+    --autocaption every file gets its own caption
   - Auto-detects thumbnails (e.g., video-thumb.jpg)
   - Can set captions using --message or --autocaption
 
@@ -119,7 +122,7 @@ Examples:
 	cmd.Flags().StringVar(&opts.thumb, "thumb", "", "Custom thumbnail for uploads")
 	cmd.Flags().BoolVar(&opts.autoCaption, "autocaption", false, "Set caption from file name using regex")
 	cmd.Flags().StringVar(&opts.autoCaptionRegex, "autocaption-regex", opts.autoCaptionRegex, "Regex to capture caption from file name (uses first group)")
-	cmd.Flags().BoolVar(&opts.group, "group", false, "Upload multiple files as a single grouped post/album")
+	cmd.Flags().BoolVar(&opts.group, "group", false, "Upload files as albums of up to 10 files")
 
 	// Common flags
 	cmd.Flags().BoolVar(&opts.silent, "silent", false, "Send without notification")
@@ -227,7 +230,7 @@ func runMediaUpload(ctx context.Context, cmd *cobra.Command, args []string, opts
 
 	svc := telegram.NewService(cfg, telegram.WithIO(cmd.InOrStdin(), out, cmd.ErrOrStderr()))
 
-	// Upload each file
+	var album []telegram.AlbumItem
 	for i, filePath := range opts.files {
 		filePath, err := config.ExpandPath(filePath)
 		if err != nil {
@@ -270,6 +273,15 @@ func runMediaUpload(ctx context.Context, cmd *cobra.Command, args []string, opts
 		}
 		logAutoCaption(out, usedAutoCaption, caption)
 
+		if opts.group {
+			album = append(album, telegram.AlbumItem{
+				FilePath:  filePath,
+				ThumbPath: thumb,
+				Caption:   albumItemCaption(i, caption, usedAutoCaption),
+			})
+			continue
+		}
+
 		// Upload the file
 		if err := svc.Upload(ctx, telegram.UploadRequest{
 			ChatId:     chat,
@@ -292,7 +304,25 @@ func runMediaUpload(ctx context.Context, cmd *cobra.Command, args []string, opts
 		}
 	}
 
+	if opts.group {
+		_, err := svc.UploadAlbum(ctx, telegram.UploadAlbumRequest{
+			ChatId: chat,
+			Items:  album,
+			Silent: opts.silent,
+		})
+		return err
+	}
 	return nil
+}
+
+// albumItemCaption returns the caption of the index-th file of an album: a
+// message caption goes only on the first file (Telegram shows it for the whole
+// album), while auto-captions are set on every file.
+func albumItemCaption(index int, caption string, autoCaption bool) string {
+	if autoCaption || index == 0 {
+		return caption
+	}
+	return ""
 }
 
 func runTextMessage(ctx context.Context, cmd *cobra.Command, args []string, opts *postsNewOptions, cfg *config.Config, chat string) error {
