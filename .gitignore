@@ -1,4 +1,4 @@
-ttools
+/ttools
 /*.cache*
 .gocache/
 /dist

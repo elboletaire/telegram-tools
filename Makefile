@@ -2,6 +2,7 @@
 
 # Variables
 BINARY_NAME=ttools
+MAIN_PKG=./cmd/ttools
 VERSION?=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 COMMIT=$(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 DATE=$(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -18,14 +19,14 @@ endif
 .PHONY: build
 build:
 	@echo "Building $(BINARY_NAME) for current platform..."
-	@go build -o $(BINARY_NAME)$(BIN_EXT) .
+	@go build -o $(BINARY_NAME)$(BIN_EXT) $(MAIN_PKG)
 	@echo "Build complete: $(BINARY_NAME)$(BIN_EXT)"
 
 # Development build (with debug symbols, faster compile)
 .PHONY: dev
 dev:
 	@echo "Building development version..."
-	@go build -o $(BINARY_NAME)$(BIN_EXT) .
+	@go build -o $(BINARY_NAME)$(BIN_EXT) $(MAIN_PKG)
 	@echo "Dev build complete: $(BINARY_NAME)$(BIN_EXT)"
 
 # Quick run
@@ -38,10 +39,10 @@ run: dev
 build/linux:
 	@echo "Building for Linux..."
 	@mkdir -p $(DIST_DIR)/linux-amd64
-	@GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o $(DIST_DIR)/linux-amd64/$(BINARY_NAME) .
+	@GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o $(DIST_DIR)/linux-amd64/$(BINARY_NAME) $(MAIN_PKG)
 	@echo "  ✓ Linux amd64: $(DIST_DIR)/linux-amd64/$(BINARY_NAME)"
 	@mkdir -p $(DIST_DIR)/linux-arm64
-	@GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o $(DIST_DIR)/linux-arm64/$(BINARY_NAME) .
+	@GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o $(DIST_DIR)/linux-arm64/$(BINARY_NAME) $(MAIN_PKG)
 	@echo "  ✓ Linux arm64: $(DIST_DIR)/linux-arm64/$(BINARY_NAME)"
 
 # Build for Windows (amd64)
@@ -49,7 +50,7 @@ build/linux:
 build/windows:
 	@echo "Building for Windows..."
 	@mkdir -p $(DIST_DIR)/windows-amd64
-	@GOOS=windows GOARCH=amd64 go build $(LDFLAGS) -o $(DIST_DIR)/windows-amd64/$(BINARY_NAME).exe .
+	@GOOS=windows GOARCH=amd64 go build $(LDFLAGS) -o $(DIST_DIR)/windows-amd64/$(BINARY_NAME).exe $(MAIN_PKG)
 	@echo "  ✓ Windows amd64: $(DIST_DIR)/windows-amd64/$(BINARY_NAME).exe"
 
 # Build for macOS (amd64 and arm64/Apple Silicon)
@@ -57,10 +58,10 @@ build/windows:
 build/darwin:
 	@echo "Building for macOS..."
 	@mkdir -p $(DIST_DIR)/darwin-amd64
-	@GOOS=darwin GOARCH=amd64 go build $(LDFLAGS) -o $(DIST_DIR)/darwin-amd64/$(BINARY_NAME) .
+	@GOOS=darwin GOARCH=amd64 go build $(LDFLAGS) -o $(DIST_DIR)/darwin-amd64/$(BINARY_NAME) $(MAIN_PKG)
 	@echo "  ✓ macOS amd64: $(DIST_DIR)/darwin-amd64/$(BINARY_NAME)"
 	@mkdir -p $(DIST_DIR)/darwin-arm64
-	@GOOS=darwin GOARCH=arm64 go build $(LDFLAGS) -o $(DIST_DIR)/darwin-arm64/$(BINARY_NAME) .
+	@GOOS=darwin GOARCH=arm64 go build $(LDFLAGS) -o $(DIST_DIR)/darwin-arm64/$(BINARY_NAME) $(MAIN_PKG)
 	@echo "  ✓ macOS arm64: $(DIST_DIR)/darwin-arm64/$(BINARY_NAME)"
 
 # Build for all platforms
