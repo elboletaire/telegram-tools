@@ -37,3 +37,7 @@ changelog:
       - "^docs:"
       - "^test:"
       - "^style:"
+
+release:
+  # Tags like v1.0.0-rc.1 are published as GitHub pre-releases.
+  prerelease: auto
