@@ -3,3 +3,8 @@
 .gocache/
 /dist
 coverage.*
+
+# Local working notes
+/plan.md
+/progress.md
+/scout-*.md
