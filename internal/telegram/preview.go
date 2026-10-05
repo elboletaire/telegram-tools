@@ -113,6 +113,12 @@ func entityMarkers(e tg.MessageEntityClass, color bool) (open, close string) {
 		return "\x1b[3m", "\x1b[23m"
 	case *tg.MessageEntityCode, *tg.MessageEntityPre:
 		return "\x1b[36m", "\x1b[39m"
+	case *tg.MessageEntityUnderline:
+		return "\x1b[4m", "\x1b[24m"
+	case *tg.MessageEntityStrike:
+		return "\x1b[9m", "\x1b[29m"
+	case *tg.MessageEntitySpoiler:
+		return "\x1b[7m", "\x1b[27m"
 	}
 	return "", ""
 }

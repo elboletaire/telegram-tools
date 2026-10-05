@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"fmt"
+	"reflect"
 	"unicode/utf16"
 
 	"github.com/gotd/td/tg"
@@ -121,40 +122,47 @@ func clipEntities(entities []tg.MessageEntityClass, start, end int) []tg.Message
 	return out
 }
 
-// withRange copies an entity produced by ParseMarkdownV2 with a new range.
+// withRange returns a copy of e with a new range. Every tg.MessageEntity* type
+// stores its range in Offset and Length fields, so any entity produced by the
+// markdown or HTML parsers can be clipped.
 func withRange(e tg.MessageEntityClass, offset, length int) tg.MessageEntityClass {
-	switch v := e.(type) {
-	case *tg.MessageEntityBold:
-		return &tg.MessageEntityBold{Offset: offset, Length: length}
-	case *tg.MessageEntityItalic:
-		return &tg.MessageEntityItalic{Offset: offset, Length: length}
-	case *tg.MessageEntityCode:
-		return &tg.MessageEntityCode{Offset: offset, Length: length}
-	case *tg.MessageEntityPre:
-		return &tg.MessageEntityPre{Offset: offset, Length: length, Language: v.Language}
-	case *tg.MessageEntityTextURL:
-		return &tg.MessageEntityTextURL{Offset: offset, Length: length, URL: v.URL}
-	case *tg.MessageEntityBlockquote:
-		return &tg.MessageEntityBlockquote{Offset: offset, Length: length, Collapsed: v.Collapsed}
-	default:
+	src := reflect.ValueOf(e)
+	if src.Kind() != reflect.Pointer || src.IsNil() || src.Elem().Kind() != reflect.Struct {
 		return nil
 	}
+	dst := reflect.New(src.Elem().Type())
+	dst.Elem().Set(src.Elem())
+	off, ln := dst.Elem().FieldByName("Offset"), dst.Elem().FieldByName("Length")
+	if off.Kind() != reflect.Int || ln.Kind() != reflect.Int {
+		return nil
+	}
+	off.SetInt(int64(offset))
+	ln.SetInt(int64(length))
+	clipped, _ := dst.Interface().(tg.MessageEntityClass)
+	return clipped
 }
 
-// PrepareMessage turns a message into the chunks to send: markdown is parsed
-// into entities when parseMode is "MarkdownV2", and the result is split at
-// Telegram's message length limit.
+// PrepareMessage turns a message into the chunks to send: markdown or HTML is
+// parsed into entities when parseMode is "MarkdownV2" or "HTML", and the result
+// is split at Telegram's message length limit.
 func PrepareMessage(message, parseMode string) ([]MessageChunk, error) {
 	var entities []tg.MessageEntityClass
-	if parseMode == "MarkdownV2" {
+	switch parseMode {
+	case "MarkdownV2":
 		parsedText, parsedEntities, err := ParseMarkdownV2(message)
 		if err != nil {
 			return nil, fmt.Errorf("parse markdown: %w", err)
 		}
 		message = parsedText
 		entities = parsedEntities
+	case "HTML":
+		parsedText, parsedEntities, err := ParseHTML(message)
+		if err != nil {
+			return nil, fmt.Errorf("parse html: %w", err)
+		}
+		message = parsedText
+		entities = parsedEntities
 	}
-	// HTML mode: sent raw (HTML parser not implemented yet)
 
 	return SplitMessage(message, entities, MaxMessageLength), nil
 }

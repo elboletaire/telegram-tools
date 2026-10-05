@@ -1,6 +1,7 @@
 package telegram
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -154,5 +155,57 @@ func TestPrepareMessage_PlainModeKeepsMarkdownSyntax(t *testing.T) {
 	assertTexts(t, chunks, []string{"**x**"})
 	if len(chunks[0].Entities) != 0 {
 		t.Errorf("expected no entities in plain mode, got %d", len(chunks[0].Entities))
+	}
+}
+
+func TestPrepareMessage_HTMLModeParsesEntities(t *testing.T) {
+	input := `<b>bold</b> <i>it</i> <u>u</u> <s>s</s> <tg-spoiler>sp</tg-spoiler> <a href="https://x.test/a_b">link</a> a &lt; b`
+
+	chunks, err := PrepareMessage(input, "HTML")
+	if err != nil {
+		t.Fatalf("PrepareMessage failed: %v", err)
+	}
+
+	assertTexts(t, chunks, []string{"bold it u s sp link a < b"})
+	want := []string{
+		"*tg.MessageEntityBold",
+		"*tg.MessageEntityItalic",
+		"*tg.MessageEntityUnderline",
+		"*tg.MessageEntityStrike",
+		"*tg.MessageEntitySpoiler",
+		"*tg.MessageEntityTextURL",
+	}
+	if len(chunks[0].Entities) != len(want) {
+		t.Fatalf("expected %d entities, got %d: %#v", len(want), len(chunks[0].Entities), chunks[0].Entities)
+	}
+	for i, e := range chunks[0].Entities {
+		if got := fmt.Sprintf("%T", e); got != want[i] {
+			t.Errorf("entity %d: expected %s, got %s", i, want[i], got)
+		}
+	}
+}
+
+func TestPrepareMessage_HTMLModeSplitsKeepingAllEntityTypes(t *testing.T) {
+	input := "<u>" + strings.Repeat("a", MaxMessageLength+10) + "</u>"
+
+	chunks, err := PrepareMessage(input, "HTML")
+	if err != nil {
+		t.Fatalf("PrepareMessage failed: %v", err)
+	}
+
+	if len(chunks) != 2 {
+		t.Fatalf("expected 2 chunks, got %d", len(chunks))
+	}
+	for i, c := range chunks {
+		if len(c.Entities) != 1 {
+			t.Fatalf("chunk %d: expected 1 entity, got %d", i, len(c.Entities))
+		}
+		u, ok := c.Entities[0].(*tg.MessageEntityUnderline)
+		if !ok {
+			t.Fatalf("chunk %d: expected underline, got %T", i, c.Entities[0])
+		}
+		if u.Offset != 0 || u.Length != utf16Len(c.Text) {
+			t.Errorf("chunk %d: expected underline(0,%d), got (%d,%d)", i, utf16Len(c.Text), u.Offset, u.Length)
+		}
 	}
 }

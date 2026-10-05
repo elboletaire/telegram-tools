@@ -81,3 +81,20 @@ func TestRenderPreview_OffsetsAreUTF16(t *testing.T) {
 		t.Errorf("expected %q, got %q", want, got)
 	}
 }
+
+func TestRenderPreview_ColorsHTMLOnlyEntities(t *testing.T) {
+	chunk := MessageChunk{
+		Text: "u s sp",
+		Entities: []tg.MessageEntityClass{
+			&tg.MessageEntityUnderline{Offset: 0, Length: 1},
+			&tg.MessageEntityStrike{Offset: 2, Length: 1},
+			&tg.MessageEntitySpoiler{Offset: 4, Length: 2},
+		},
+	}
+
+	got := RenderPreview(chunk, true)
+	want := "\x1b[4mu\x1b[24m \x1b[9ms\x1b[29m \x1b[7msp\x1b[27m"
+	if got != want {
+		t.Errorf("expected %q, got %q", want, got)
+	}
+}
