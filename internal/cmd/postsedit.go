@@ -37,6 +37,7 @@ type postsEditOptions struct {
 	// Common options
 	silent bool
 	dryRun bool
+	color  string
 }
 
 func newPostsEditCommand(sharedOpts *sharedPostsOptions) *cobra.Command {
@@ -119,6 +120,7 @@ Examples:
 	// Common flags
 	cmd.Flags().BoolVar(&opts.silent, "silent", false, "Edit message silently if possible")
 	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "Preview the new text without editing (requires --post-id)")
+	cmd.Flags().StringVar(&opts.color, "color", "auto", "Color the --dry-run preview: auto, always or never")
 
 	return cmd
 }
@@ -267,7 +269,11 @@ func runTextEdit(ctx context.Context, cmd *cobra.Command, args []string, opts *p
 			fmt.Fprintf(out, "Dry run: the message of post #%d in %s would be cleared. Nothing was sent.\n", opts.postID, chat)
 			return nil
 		}
-		return printDryRunEdit(out, chat, opts.postID, message, parseMode, isTerminalWriter(out))
+		color, err := resolveColor(opts.color, out)
+		if err != nil {
+			return err
+		}
+		return printDryRunEdit(out, chat, opts.postID, message, parseMode, color)
 	}
 
 	// Edit the message

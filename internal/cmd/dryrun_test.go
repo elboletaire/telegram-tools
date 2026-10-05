@@ -80,3 +80,34 @@ func TestPrintDryRunEdit_ShowsTheEditTarget(t *testing.T) {
 		}
 	}
 }
+
+func TestResolveColor(t *testing.T) {
+	var buf bytes.Buffer // never a terminal
+
+	tests := []struct {
+		mode    string
+		noColor string
+		want    bool
+		wantErr bool
+	}{
+		{mode: "auto", want: false},
+		{mode: "", want: false},
+		{mode: "always", want: true},
+		{mode: "always", noColor: "1", want: true},
+		{mode: "never", want: false},
+		{mode: "sometimes", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.mode+"/"+tt.noColor, func(t *testing.T) {
+			t.Setenv("NO_COLOR", tt.noColor)
+			got, err := resolveColor(tt.mode, &buf)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("expected error=%v, got %v", tt.wantErr, err)
+			}
+			if got != tt.want {
+				t.Errorf("expected %v, got %v", tt.want, got)
+			}
+		})
+	}
+}

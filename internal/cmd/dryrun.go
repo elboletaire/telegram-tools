@@ -61,6 +61,21 @@ func printPreviewBlock(out io.Writer, header string, chunk telegram.MessageChunk
 	fmt.Fprintf(out, "%s\n\n", telegram.RenderPreview(chunk, color))
 }
 
+// resolveColor turns a --color value (auto, always or never) into whether to
+// use ANSI styles. "auto" colors only interactive terminals and honours NO_COLOR.
+func resolveColor(mode string, out io.Writer) (bool, error) {
+	switch mode {
+	case "", "auto":
+		return os.Getenv("NO_COLOR") == "" && isTerminalWriter(out), nil
+	case "always":
+		return true, nil
+	case "never":
+		return false, nil
+	default:
+		return false, fmt.Errorf("invalid --color value %q (use auto, always or never)", mode)
+	}
+}
+
 // isTerminalWriter reports whether out is an interactive terminal, so previews
 // only use ANSI styles when they will be rendered.
 func isTerminalWriter(out io.Writer) bool {

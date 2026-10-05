@@ -35,6 +35,7 @@ type postsNewOptions struct {
 	// Common options
 	silent bool
 	dryRun bool
+	color  string
 }
 
 func newPostsNewCommand(sharedOpts *sharedPostsOptions) *cobra.Command {
@@ -122,6 +123,7 @@ Examples:
 	cmd.Flags().BoolVar(&opts.silent, "silent", false, "Send without notification")
 	cmd.Flags().BoolVar(&opts.noPreview, "no-preview", false, "Disable link preview generation")
 	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "Preview text messages without sending them")
+	cmd.Flags().StringVar(&opts.color, "color", "auto", "Color the --dry-run preview: auto, always or never")
 
 	return cmd
 }
@@ -335,7 +337,11 @@ func runTextMessage(ctx context.Context, cmd *cobra.Command, args []string, opts
 	}
 
 	if opts.dryRun {
-		return printDryRun(out, chat, messages, parseMode, isTerminalWriter(out))
+		color, err := resolveColor(opts.color, out)
+		if err != nil {
+			return err
+		}
+		return printDryRun(out, chat, messages, parseMode, color)
 	}
 
 	// Send messages with batch delay
