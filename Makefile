@@ -45,13 +45,16 @@ build/linux:
 	@GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o $(DIST_DIR)/linux-arm64/$(BINARY_NAME) $(MAIN_PKG)
 	@echo "  ✓ Linux arm64: $(DIST_DIR)/linux-arm64/$(BINARY_NAME)"
 
-# Build for Windows (amd64)
+# Build for Windows (amd64 and arm64)
 .PHONY: build/windows
 build/windows:
 	@echo "Building for Windows..."
 	@mkdir -p $(DIST_DIR)/windows-amd64
 	@GOOS=windows GOARCH=amd64 go build $(LDFLAGS) -o $(DIST_DIR)/windows-amd64/$(BINARY_NAME).exe $(MAIN_PKG)
 	@echo "  ✓ Windows amd64: $(DIST_DIR)/windows-amd64/$(BINARY_NAME).exe"
+	@mkdir -p $(DIST_DIR)/windows-arm64
+	@GOOS=windows GOARCH=arm64 go build $(LDFLAGS) -o $(DIST_DIR)/windows-arm64/$(BINARY_NAME).exe $(MAIN_PKG)
+	@echo "  ✓ Windows arm64: $(DIST_DIR)/windows-arm64/$(BINARY_NAME).exe"
 
 # Build for macOS (amd64 and arm64/Apple Silicon)
 .PHONY: build/darwin
@@ -131,7 +134,7 @@ help:
 	@echo "Build Targets:"
 	@echo "  build         Build for current platform"
 	@echo "  build/linux   Build for Linux (amd64, arm64)"
-	@echo "  build/windows Build for Windows (amd64)"
+	@echo "  build/windows Build for Windows (amd64, arm64)"
 	@echo "  build/darwin  Build for macOS (amd64, arm64)"
 	@echo "  build/all     Build for all platforms"
 	@echo ""

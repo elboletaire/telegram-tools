@@ -14,9 +14,6 @@ builds:
       - -s -w -X main.version={{ .Version }}
     goos: [linux, darwin, windows]
     goarch: [amd64, arm64]
-    ignore:
-      - goos: windows
-        goarch: arm64
 
 archives:
   - formats: [tar.gz]
@@ -31,12 +28,27 @@ checksum:
   name_template: checksums.txt
 
 changelog:
-  use: github
+  use: git
+  # Only the commit message, without the conventional commit prefix, SHA or author.
+  format: '{{ $parts := split .Message ": " }}{{ if eq (len $parts) 2 }}{{ index $parts 1 }}{{ else }}{{ .Message }}{{ end }}'
   filters:
     exclude:
-      - "^docs:"
-      - "^test:"
-      - "^style:"
+      - '^(build|chore|ci|docs|refactor|style|test)(\(.*\))?!?:'
+  groups:
+    - title: Features
+      regexp: '^feat(\(.*\))?!?:'
+      order: 0
+    - title: Bug fixes
+      regexp: '^fix(\(.*\))?!?:'
+      order: 1
+    - title: Other changes
+      order: 999
+
+git:
+  # Stable releases compare against the previous stable one, not its release
+  # candidates, so their changelog covers everything since the last release.
+  ignore_tags:
+    - "{{ if not .Prerelease }}*-rc*{{ end }}"
 
 release:
   # Tags like v1.0.0-rc.1 are published as GitHub pre-releases.
