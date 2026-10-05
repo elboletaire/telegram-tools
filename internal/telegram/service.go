@@ -295,77 +295,80 @@ func (s *Service) Upload(ctx context.Context, req UploadRequest) error {
 	return nil
 }
 
-// SendMessage sends a text message to a channel.
-func (s *Service) SendMessage(ctx context.Context, req SendMessageRequest) (int, error) {
+// SendMessage sends a text message to a channel. Messages over Telegram's
+// length limit are split into several messages; the IDs of all of them are
+// returned in order.
+func (s *Service) SendMessage(ctx context.Context, req SendMessageRequest) ([]int, error) {
 	if strings.TrimSpace(req.Message) == "" {
-		return 0, fmt.Errorf("message is required")
+		return nil, fmt.Errorf("message is required")
 	}
 	if strings.TrimSpace(req.ChatId) == "" {
-		return 0, fmt.Errorf("channel is required")
+		return nil, fmt.Errorf("channel is required")
 	}
 
-	var messageID int
-	err := s.run(ctx, func(ctx context.Context, api *tg.Client) error {
+	chunks, err := PrepareMessage(req.Message, req.ParseMode)
+	if err != nil {
+		return nil, err
+	}
+
+	var messageIDs []int
+	err = s.run(ctx, func(ctx context.Context, api *tg.Client) error {
 		channel, err := s.resolveChat(ctx, api, req.ChatId)
 		if err != nil {
 			return err
 		}
 
-		message := req.Message
-		var entities []tg.MessageEntityClass
-
-		// Parse markdown if requested
-		if req.ParseMode == "MarkdownV2" {
-			parsedText, parsedEntities, err := ParseMarkdownV2(message)
-			if err != nil {
-				return fmt.Errorf("parse markdown: %w", err)
+		for i, chunk := range chunks {
+			if i > 0 {
+				// Keep the same pacing as batch sends to avoid flood waits.
+				select {
+				case <-time.After(1100 * time.Millisecond):
+				case <-ctx.Done():
+					return ctx.Err()
+				}
 			}
-			message = parsedText
-			entities = parsedEntities
-		}
-		// Note: HTML parsing would require a different parser
-		// For now, HTML mode will send the raw HTML as plain text with no entities
 
-		randomID, err := crypto.RandInt64(crypto.DefaultRand())
-		if err != nil {
-			return fmt.Errorf("generate random id: %w", err)
-		}
-
-		send := &tg.MessagesSendMessageRequest{
-			Peer:     channel.peer,
-			Message:  message,
-			RandomID: randomID,
-		}
-		send.SetSilent(req.Silent)
-		send.SetNoWebpage(req.NoWebpage)
-
-		// Only set entities if we have any (for markdown mode)
-		if len(entities) > 0 {
-			send.Entities = entities
-		}
-
-		var updates tg.UpdatesClass
-		onFlood := s.buildFloodLogger(req.ChatId, "message")
-		err = callWithFloodRetry(ctx, func() error {
-			u, err := api.MessagesSendMessage(ctx, send)
+			randomID, err := crypto.RandInt64(crypto.DefaultRand())
 			if err != nil {
+				return fmt.Errorf("generate random id: %w", err)
+			}
+
+			send := &tg.MessagesSendMessageRequest{
+				Peer:     channel.peer,
+				Message:  chunk.Text,
+				RandomID: randomID,
+			}
+			send.SetSilent(req.Silent)
+			send.SetNoWebpage(req.NoWebpage)
+
+			// Only set entities if we have any (for markdown mode)
+			if len(chunk.Entities) > 0 {
+				send.Entities = chunk.Entities
+			}
+
+			var updates tg.UpdatesClass
+			onFlood := s.buildFloodLogger(req.ChatId, "message")
+			err = callWithFloodRetry(ctx, func() error {
+				u, err := api.MessagesSendMessage(ctx, send)
+				if err != nil {
+					return err
+				}
+				updates = u
+				return nil
+			}, onFlood)
+			if err != nil {
+				s.evictPeerIfStale(channel, err)
 				return err
 			}
-			updates = u
-			return nil
-		}, onFlood)
-		if err != nil {
-			s.evictPeerIfStale(channel, err)
-			return err
-		}
 
-		if id, ok := extractMessageID(updates); ok {
-			messageID = id
+			if id, ok := extractMessageID(updates); ok {
+				messageIDs = append(messageIDs, id)
+			}
 		}
 		return nil
 	})
 
-	return messageID, err
+	return messageIDs, err
 }
 
 // EditMessage edits the text of an existing message without changing media.
@@ -385,19 +388,16 @@ func (s *Service) EditMessage(ctx context.Context, req EditMessageRequest) error
 			return err
 		}
 
-		// Parse message based on mode
-		message := req.Message
-		var entities []tg.MessageEntityClass
-
-		if req.ParseMode == "MarkdownV2" {
-			parsedText, parsedEntities, err := ParseMarkdownV2(message)
-			if err != nil {
-				return fmt.Errorf("parse markdown: %w", err)
-			}
-			message = parsedText
-			entities = parsedEntities
+		// An edit can only ever be one message, so it cannot be split.
+		chunks, err := PrepareMessage(req.Message, req.ParseMode)
+		if err != nil {
+			return err
 		}
-		// HTML mode: send raw message (HTML parser not implemented yet)
+		if len(chunks) > 1 {
+			return fmt.Errorf("message too long for an edit: it would need %d messages of up to %d characters", len(chunks), MaxMessageLength)
+		}
+		message := chunks[0].Text
+		entities := chunks[0].Entities
 
 		// Build edit request
 		edit := &tg.MessagesEditMessageRequest{

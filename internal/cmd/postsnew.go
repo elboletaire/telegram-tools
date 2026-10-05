@@ -34,6 +34,7 @@ type postsNewOptions struct {
 
 	// Common options
 	silent bool
+	dryRun bool
 }
 
 func newPostsNewCommand(sharedOpts *sharedPostsOptions) *cobra.Command {
@@ -57,6 +58,9 @@ Arguments are automatically detected as files or text:
 TEXT MESSAGES:
 Messages are formatted as MarkdownV2 by default. Use standard markdown syntax:
   **bold**, _italic_, ` + "`code`" + `, ` + "```code block```" + `, [link](url)
+
+Messages longer than Telegram's 4096 character limit are split into several
+messages, cutting at paragraph breaks, then line breaks, then spaces.
 
 Message input sources (in priority order):
   1. --message-file: Read from file
@@ -90,7 +94,10 @@ Examples:
   # Other input methods
   ttools posts new --message-file message.md
   cat message.md | ttools posts new
-  ttools posts new "<b>Bold</b> text" --html`,
+  ttools posts new "<b>Bold</b> text" --html
+
+  # Preview without sending (long messages show how they would be split)
+  cat message.md | ttools posts new --dry-run`,
 		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runPostsNew(cmd.Context(), cmd, args, opts)
@@ -114,6 +121,7 @@ Examples:
 	// Common flags
 	cmd.Flags().BoolVar(&opts.silent, "silent", false, "Send without notification")
 	cmd.Flags().BoolVar(&opts.noPreview, "no-preview", false, "Disable link preview generation")
+	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "Preview text messages without sending them")
 
 	return cmd
 }
@@ -123,8 +131,11 @@ func runPostsNew(ctx context.Context, cmd *cobra.Command, args []string, opts *p
 	if err != nil {
 		return err
 	}
-	if err := cfg.Requirements(); err != nil {
-		return err
+	// A dry run never connects to Telegram, so it needs no credentials.
+	if !opts.dryRun {
+		if err := cfg.Requirements(); err != nil {
+			return err
+		}
 	}
 
 	chat, err := cfg.ResolveChat("")
@@ -157,6 +168,9 @@ func runPostsNew(ctx context.Context, cmd *cobra.Command, args []string, opts *p
 }
 
 func runMediaUpload(ctx context.Context, cmd *cobra.Command, args []string, opts *postsNewOptions, cfg *config.Config, chat string) error {
+	if opts.dryRun {
+		return fmt.Errorf("--dry-run is only supported for text messages")
+	}
 	out := cmd.OutOrStdout()
 
 	// Gather message/caption
@@ -320,6 +334,10 @@ func runTextMessage(ctx context.Context, cmd *cobra.Command, args []string, opts
 		return fmt.Errorf("no messages provided (use args, --message, --message-file, or pipe from stdin)")
 	}
 
+	if opts.dryRun {
+		return printDryRun(out, chat, messages, parseMode, isTerminalWriter(out))
+	}
+
 	// Send messages with batch delay
 	svc := telegram.NewService(cfg, telegram.WithIO(cmd.InOrStdin(), out, cmd.ErrOrStderr()))
 
@@ -337,12 +355,17 @@ func runTextMessage(ctx context.Context, cmd *cobra.Command, args []string, opts
 			NoWebpage: opts.noPreview,
 		}
 
-		messageID, err := svc.SendMessage(ctx, req)
+		messageIDs, err := svc.SendMessage(ctx, req)
 		if err != nil {
 			return fmt.Errorf("send message %d: %w", i+1, err)
 		}
 
-		fmt.Fprintf(out, "✓ Message sent (ID: %d)\n", messageID)
+		for _, messageID := range messageIDs {
+			fmt.Fprintf(out, "✓ Message sent (ID: %d)\n", messageID)
+		}
+		if len(messageIDs) > 1 {
+			fmt.Fprintf(out, "  (split into %d messages to fit Telegram's length limit)\n", len(messageIDs))
+		}
 
 		// Add delay between messages (except after last)
 		if i < len(messages)-1 {

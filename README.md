@@ -115,6 +115,7 @@ ttools posts new --message-file message.md
 echo "Text" | ttools posts new
 cat message.md | ttools posts new --chat -123456789
 cat message.html | ttools posts new --html
+cat message.md | ttools posts new --dry-run  # Preview without sending
 
 # Upload media with caption
 ttools posts new --file video.mp4 --message "My caption"
@@ -149,9 +150,15 @@ ttools posts find --search "keyword"
 - `--plain` - Plain text (no formatting)
 - Default is Markdown
 
+Messages longer than Telegram's 4096 character limit are split into several
+messages when sending, cutting at paragraph breaks, then line breaks, then
+spaces, so formatting is never broken. Edits can't be split, so an edit over
+the limit fails instead.
+
 **Other**:
 - `--silent` - Send/edit without notification
 - `--delimiter` - Message delimiter for batch sending (default: `[npost]`)
+- `--dry-run` - Preview text messages (rendered, and split as they would be sent) without connecting to Telegram; `posts edit --dry-run` requires `--post-id`
 
 ### Global Flags
 

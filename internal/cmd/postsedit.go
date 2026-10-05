@@ -36,6 +36,7 @@ type postsEditOptions struct {
 
 	// Common options
 	silent bool
+	dryRun bool
 }
 
 func newPostsEditCommand(sharedOpts *sharedPostsOptions) *cobra.Command {
@@ -86,7 +87,10 @@ Examples:
   ttools posts edit --post-id 123 --clear-message
 
   # Search and select post interactively
-  ttools posts edit --search "keyword" "New text"`,
+  ttools posts edit --search "keyword" "New text"
+
+  # Preview the new text without editing (requires --post-id)
+  cat new-message.md | ttools posts edit --post-id 123 --dry-run`,
 		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runPostsEdit(cmd.Context(), cmd, args, opts)
@@ -114,6 +118,7 @@ Examples:
 
 	// Common flags
 	cmd.Flags().BoolVar(&opts.silent, "silent", false, "Edit message silently if possible")
+	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "Preview the new text without editing (requires --post-id)")
 
 	return cmd
 }
@@ -125,7 +130,16 @@ func runPostsEdit(ctx context.Context, cmd *cobra.Command, args []string, opts *
 	if err != nil {
 		return err
 	}
-	if err := cfg.Requirements(); err != nil {
+	// A dry run never connects to Telegram, so it needs no credentials, but it
+	// can't use the interactive selector either (that fetches posts).
+	if opts.dryRun {
+		if opts.postID == 0 {
+			return errors.New("--dry-run requires --post-id")
+		}
+		if opts.file != "" {
+			return errors.New("--dry-run is only supported for text edits")
+		}
+	} else if err := cfg.Requirements(); err != nil {
 		return err
 	}
 
@@ -246,6 +260,14 @@ func runTextEdit(ctx context.Context, cmd *cobra.Command, args []string, opts *p
 		parseMode = "" // No entities when clearing
 	} else if !messageProvided || strings.TrimSpace(message) == "" {
 		return errors.New("message is required (use args, --message, --message-file, pipe from stdin, or --clear-message)")
+	}
+
+	if opts.dryRun {
+		if opts.clearMessage {
+			fmt.Fprintf(out, "Dry run: the message of post #%d in %s would be cleared. Nothing was sent.\n", opts.postID, chat)
+			return nil
+		}
+		return printDryRunEdit(out, chat, opts.postID, message, parseMode, isTerminalWriter(out))
 	}
 
 	// Edit the message
