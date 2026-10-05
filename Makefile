@@ -6,7 +6,7 @@ MAIN_PKG=./cmd/ttools
 VERSION?=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 COMMIT=$(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 DATE=$(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
-LDFLAGS=-ldflags "-s -w"
+LDFLAGS=-ldflags "-s -w -X main.version=$(VERSION)"
 DIST_DIR=dist
 BIN_EXT=
 
@@ -19,7 +19,7 @@ endif
 .PHONY: build
 build:
 	@echo "Building $(BINARY_NAME) for current platform..."
-	@go build -o $(BINARY_NAME)$(BIN_EXT) $(MAIN_PKG)
+	@go build $(LDFLAGS) -o $(BINARY_NAME)$(BIN_EXT) $(MAIN_PKG)
 	@echo "Build complete: $(BINARY_NAME)$(BIN_EXT)"
 
 # Development build (with debug symbols, faster compile)

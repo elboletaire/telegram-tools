@@ -16,9 +16,9 @@ var appState = &state{
 	v: viper.New(),
 }
 
-// Execute runs the CLI entrypoint.
-func Execute() error {
-	return newRootCommand().Execute()
+// Execute runs the CLI entrypoint. version is shown by --version.
+func Execute(version string) error {
+	return newRootCommand(version).Execute()
 }
 
 type state struct {
@@ -29,10 +29,11 @@ type state struct {
 	initErr  error
 }
 
-func newRootCommand() *cobra.Command {
+func newRootCommand(version string) *cobra.Command {
 	root := &cobra.Command{
-		Use:   "ttools",
-		Short: "Telegram tooling for channel posts and maintenance",
+		Use:     "ttools",
+		Short:   "Telegram tooling for channel posts and maintenance",
+		Version: version,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
 		},
