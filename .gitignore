@@ -8,3 +8,8 @@ coverage.*
 /plan.md
 /progress.md
 /scout-*.md
+
+# Locally installed agent skills
+/.agents/
+/.claude/
+/skills-lock.json
