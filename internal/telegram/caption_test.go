@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/elboletaire/ttools/internal/config"
+	"github.com/elboletaire/telegram-tools/internal/config"
 )
 
 func TestCheckCaptionLength(t *testing.T) {

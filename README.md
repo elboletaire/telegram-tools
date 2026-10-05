@@ -5,8 +5,8 @@
 
 *Manage your Telegram channel posts from the terminal*
 
-[![CI](https://img.shields.io/github/actions/workflow/status/elboletaire/ttools/ci.yml?style=flat-square&label=CI)](https://github.com/elboletaire/ttools/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/elboletaire/ttools?style=flat-square)](https://github.com/elboletaire/ttools/releases)
+[![CI](https://img.shields.io/github/actions/workflow/status/elboletaire/telegram-tools/ci.yml?style=flat-square&label=CI)](https://github.com/elboletaire/telegram-tools/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/elboletaire/telegram-tools?style=flat-square)](https://github.com/elboletaire/telegram-tools/releases)
 [![License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](LICENSE)
 
 [Features](#features) • [Installation](#installation) • [Setup](#setup) • [Usage](#usage) • [Formatting](#formatting)
@@ -40,20 +40,20 @@ cat release-notes.md | ttools posts new --chat @mychannel
 ## Installation
 
 Download a prebuilt binary for Linux, macOS or Windows from the
-[releases page](https://github.com/elboletaire/ttools/releases), extract it
+[releases page](https://github.com/elboletaire/telegram-tools/releases), extract it
 and put `ttools` in your `PATH`.
 
 Or install it with Go 1.25+:
 
 ```bash
-go install github.com/elboletaire/ttools/cmd/ttools@latest
+go install github.com/elboletaire/telegram-tools/cmd/ttools@latest
 ```
 
 Or build it from source:
 
 ```bash
-git clone https://github.com/elboletaire/ttools.git
-cd ttools
+git clone https://github.com/elboletaire/telegram-tools.git
+cd telegram-tools
 make build
 ```
 

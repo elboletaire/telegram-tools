@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/elboletaire/ttools/internal/ui/postslist"
+	"github.com/elboletaire/telegram-tools/internal/ui/postslist"
 )
 
 func newPostsListCommand(sharedOpts *sharedPostsOptions) *cobra.Command {

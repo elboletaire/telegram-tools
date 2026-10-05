@@ -8,7 +8,7 @@ import (
 
 	"golang.org/x/term"
 
-	"github.com/elboletaire/ttools/internal/telegram"
+	"github.com/elboletaire/telegram-tools/internal/telegram"
 )
 
 // printDryRun shows what 'posts new' would send, one block per Telegram

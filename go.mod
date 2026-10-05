@@ -1,4 +1,4 @@
-module github.com/elboletaire/ttools
+module github.com/elboletaire/telegram-tools
 
 go 1.25.4
 

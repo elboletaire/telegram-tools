@@ -9,9 +9,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/elboletaire/ttools/internal/config"
-	"github.com/elboletaire/ttools/internal/floodwait"
-	"github.com/elboletaire/ttools/internal/telegram"
+	"github.com/elboletaire/telegram-tools/internal/config"
+	"github.com/elboletaire/telegram-tools/internal/floodwait"
+	"github.com/elboletaire/telegram-tools/internal/telegram"
 )
 
 // sharedPostsOptions holds flags that are shared across all posts subcommands

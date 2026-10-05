@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 
-	"github.com/elboletaire/ttools/internal/config"
+	"github.com/elboletaire/telegram-tools/internal/config"
 )
 
 var appState = &state{

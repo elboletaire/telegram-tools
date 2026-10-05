@@ -8,9 +8,9 @@ import (
 	"github.com/gotd/td/tg"
 	"github.com/spf13/cobra"
 
-	"github.com/elboletaire/ttools/internal/floodwait"
-	"github.com/elboletaire/ttools/internal/telegram"
-	"github.com/elboletaire/ttools/internal/ui/postslist"
+	"github.com/elboletaire/telegram-tools/internal/floodwait"
+	"github.com/elboletaire/telegram-tools/internal/telegram"
+	"github.com/elboletaire/telegram-tools/internal/ui/postslist"
 )
 
 type postsFindOptions struct {

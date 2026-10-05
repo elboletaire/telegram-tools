@@ -8,7 +8,7 @@ import (
 
 	"github.com/gotd/td/tg"
 
-	"github.com/elboletaire/ttools/internal/config"
+	"github.com/elboletaire/telegram-tools/internal/config"
 )
 
 func TestResolveChatUsesCanonicalDiskCacheForNumericAliases(t *testing.T) {

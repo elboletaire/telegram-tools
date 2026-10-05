@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/elboletaire/ttools/internal/ui/chatslist"
+	"github.com/elboletaire/telegram-tools/internal/ui/chatslist"
 )
 
 type chatsListOptions struct {

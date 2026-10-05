@@ -4,7 +4,7 @@ import (
 	"log"
 	"runtime/debug"
 
-	"github.com/elboletaire/ttools/internal/cmd"
+	"github.com/elboletaire/telegram-tools/internal/cmd"
 )
 
 // version is set at release time with -ldflags "-X main.version=...".

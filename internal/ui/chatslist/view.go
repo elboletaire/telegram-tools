@@ -10,7 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/elboletaire/ttools/internal/telegram"
+	"github.com/elboletaire/telegram-tools/internal/telegram"
 )
 
 // Display renders a read-only, paginated list of chats.

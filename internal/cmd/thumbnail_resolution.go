@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/elboletaire/ttools/internal/config"
+	"github.com/elboletaire/telegram-tools/internal/config"
 )
 
 func resolveReplacementThumbnail(filePath string, thumbProvided bool, providedThumb string, defaultThumb string) (string, bool, error) {

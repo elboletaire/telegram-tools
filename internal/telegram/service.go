@@ -21,8 +21,8 @@ import (
 	"github.com/gotd/td/tg"
 	"github.com/gotd/td/tgerr"
 
-	"github.com/elboletaire/ttools/internal/config"
-	"github.com/elboletaire/ttools/internal/floodwait"
+	"github.com/elboletaire/telegram-tools/internal/config"
+	"github.com/elboletaire/telegram-tools/internal/floodwait"
 )
 
 // ServiceOption configures the Telegram service behavior.

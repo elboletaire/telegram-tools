@@ -12,8 +12,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/elboletaire/ttools/internal/config"
-	"github.com/elboletaire/ttools/internal/telegram"
+	"github.com/elboletaire/telegram-tools/internal/config"
+	"github.com/elboletaire/telegram-tools/internal/telegram"
 )
 
 // defaultAutoCaptionRegex captures everything after the first "-" in a file name.

@@ -10,9 +10,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/elboletaire/ttools/internal/config"
-	"github.com/elboletaire/ttools/internal/telegram"
-	"github.com/elboletaire/ttools/internal/ui/postslist"
+	"github.com/elboletaire/telegram-tools/internal/config"
+	"github.com/elboletaire/telegram-tools/internal/telegram"
+	"github.com/elboletaire/telegram-tools/internal/ui/postslist"
 )
 
 type postsEditOptions struct {
