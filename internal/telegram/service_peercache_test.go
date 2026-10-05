@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gotd/td/tg"
@@ -36,5 +37,21 @@ func TestResolveChatUsesCanonicalDiskCacheForNumericAliases(t *testing.T) {
 	}
 	if svc.cachedPeer("-1001111111111") == nil {
 		t.Fatal("expected raw numeric alias to be promoted into memory cache")
+	}
+}
+
+func TestResolveChat_BotGetsClearErrorForUncachedNumericID(t *testing.T) {
+	dir := t.TempDir()
+	svc := NewService(&config.Config{
+		Session: config.SessionConfig{
+			File:     filepath.Join(dir, "session.json"),
+			BotToken: "123456:fake",
+		},
+	}, WithIO(nil, io.Discard, io.Discard))
+
+	// A nil API client proves Telegram is never called: bots can't list dialogs.
+	_, err := svc.resolveChat(context.Background(), nil, "-1001111111111")
+	if err == nil || !strings.Contains(err.Error(), "@username") {
+		t.Fatalf("expected an error suggesting @username, got %v", err)
 	}
 }

@@ -1233,6 +1233,11 @@ func (s *Service) resolveByChatID(ctx context.Context, api *tg.Client, ident cha
 	if ident.kind != chatKindChannel {
 		return nil, fmt.Errorf("chat id %s is not a supported channel identifier", ident.raw)
 	}
+	// Numeric ids are resolved by scanning the account's dialogs, which
+	// Telegram doesn't allow for bots.
+	if strings.TrimSpace(s.cfg.Session.BotToken) != "" {
+		return nil, fmt.Errorf("bots can't look up channels by numeric id (%s): use the channel's @username instead", ident.raw)
+	}
 	peer, err := s.lookupChannelDialog(ctx, api, ident.id)
 	if err != nil {
 		return nil, err

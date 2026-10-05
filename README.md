@@ -87,6 +87,7 @@ Log in at [my.telegram.org](https://my.telegram.org/apps), open
 | First run | Asks for the login code (and 2FA password) | Non-interactive |
 | Can post to | Any channel where you can post | Channels where the bot is an admin |
 | Browse posts and chats | Yes | No, Telegram doesn't allow it for bots |
+| Target chat | `@username` or numeric id (`-100…`) | `@username` only |
 | Caption limit | 1024 characters (2048 with Premium) | 1024 characters |
 
 Either way the session is saved (by default in
@@ -103,7 +104,7 @@ session:
   # bot_token: "123456:ABC" # ...or a bot, not both
   password: ""              # optional 2FA password (not the login code)
 defaults:
-  chat: "@mychannel"        # or a numeric id such as -1001234567890
+  chat: "@mychannel"        # or a numeric id such as -1001234567890 (not for bots)
   thumb: ~/Pictures/thumb.jpg
 ```
 
