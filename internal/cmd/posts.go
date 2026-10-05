@@ -28,7 +28,7 @@ func newPostsCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "posts",
-		Short: "Explore channel posts",
+		Short: "Manage channel and group posts",
 	}
 
 	// Shared flags available to all subcommands

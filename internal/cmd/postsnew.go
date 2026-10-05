@@ -49,8 +49,8 @@ func newPostsNewCommand(sharedOpts *sharedPostsOptions) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "new [message...]",
 		Aliases: []string{"post", "create"},
-		Short:   "Send text messages or upload media to channel",
-		Long: `Send text messages or upload media files to the channel.
+		Short:   "Send text messages or upload media to a channel or group",
+		Long: `Send text messages or upload media files to a channel or group.
 
 SMART DETECTION:
 Arguments are automatically detected as files or text:

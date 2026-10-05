@@ -4,8 +4,8 @@ Guidance for coding agents (and humans) working on this repository.
 
 ## Project
 
-`ttools` is a CLI to manage Telegram channel posts (send, upload, edit,
-browse) without third-party bots. It talks MTProto through
+`ttools` is a CLI to manage Telegram channel and group (supergroup) posts
+(send, upload, edit, browse) without third-party bots. It talks MTProto through
 [gotd/td](https://github.com/gotd/td), authenticating either as a user account
 (phone + login code + optional 2FA) or as a bot (token from @BotFather).
 

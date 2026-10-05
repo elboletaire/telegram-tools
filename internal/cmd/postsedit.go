@@ -46,8 +46,8 @@ func newPostsEditCommand(sharedOpts *sharedPostsOptions) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "edit",
-		Short: "Edit an existing channel post",
-		Long: `Edit an existing channel post's message or media.
+		Short: "Edit an existing post",
+		Long: `Edit an existing post's message or media.
 
 POST SELECTION:
 If --post-id is not provided, an interactive selector will be shown.

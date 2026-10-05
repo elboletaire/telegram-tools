@@ -11,7 +11,7 @@ import (
 func newPostsListCommand(sharedOpts *sharedPostsOptions) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
-		Short: "List channel posts to help with reuploads",
+		Short: "List posts in a channel or group",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()
 

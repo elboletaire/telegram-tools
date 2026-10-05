@@ -32,7 +32,7 @@ type state struct {
 func newRootCommand(version string) *cobra.Command {
 	root := &cobra.Command{
 		Use:     "ttools",
-		Short:   "Telegram tooling for channel posts and maintenance",
+		Short:   "Telegram tooling for channel and group posts",
 		Version: version,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()

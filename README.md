@@ -3,7 +3,7 @@
 
 # ttools
 
-*Manage your Telegram channel posts from the terminal*
+*Manage your Telegram channel and group posts from the terminal*
 
 [![CI](https://img.shields.io/github/actions/workflow/status/elboletaire/telegram-tools/ci.yml?style=flat-square&label=CI)](https://github.com/elboletaire/telegram-tools/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/elboletaire/telegram-tools?style=flat-square)](https://github.com/elboletaire/telegram-tools/releases)
@@ -14,7 +14,8 @@
 </div>
 
 `ttools` (short for *Telegram tools*) sends messages, uploads media, edits and
-browses posts in your Telegram channels, without third-party bots in the middle.
+browses posts in your Telegram channels and groups, without third-party bots in
+the middle.
 It talks to Telegram directly over MTProto (via [gotd/td](https://github.com/gotd/td)),
 as your own user account or as a bot, so it fits both day-to-day use and CI
 pipelines.
@@ -41,6 +42,10 @@ cat release-notes.md | ttools posts new --chat @mychannel
   connecting to Telegram.
 - **Friendly to Telegram limits**: waits out `FLOOD_WAIT` responses and
   validates caption lengths before uploading.
+
+> [!NOTE]
+> Channels and groups (supergroups) are supported. Small legacy groups (whose
+> ids don't start with `-100`) and private chats aren't supported yet.
 
 ## Installation
 
@@ -85,7 +90,7 @@ Log in at [my.telegram.org](https://my.telegram.org/apps), open
 |---|---|---|
 | Logs in as | You, with your phone number | A bot created with [@BotFather](https://t.me/botfather) |
 | First run | Asks for the login code (and 2FA password) | Non-interactive |
-| Can post to | Any channel where you can post | Channels where the bot is an admin |
+| Can post to | Any channel or group where you can post | Channels where the bot is an admin, groups it belongs to |
 | Browse posts and chats | Yes | No, Telegram doesn't allow it for bots |
 | Target chat | `@username` or numeric id (`-100…`) | `@username` only |
 | Caption limit | 1024 characters (2048 with Premium) | 1024 characters |
