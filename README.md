@@ -13,14 +13,19 @@
 
 </div>
 
-`ttools` sends messages, uploads media, edits and browses posts in your Telegram
-channels, without third-party bots in the middle. It talks to Telegram directly
-over MTProto (via [gotd/td](https://github.com/gotd/td)), as your own user
-account or as a bot, so it fits both day-to-day use and CI pipelines.
+`ttools` (short for *Telegram tools*) sends messages, uploads media, edits and
+browses posts in your Telegram channels, without third-party bots in the middle.
+It talks to Telegram directly over MTProto (via [gotd/td](https://github.com/gotd/td)),
+as your own user account or as a bot, so it fits both day-to-day use and CI
+pipelines.
 
 ```bash
 cat release-notes.md | ttools posts new --chat @mychannel
 ```
+
+> [!NOTE]
+> `ttools` is an unofficial tool built on the Telegram API. It is not affiliated
+> with or endorsed by Telegram.
 
 ## Features
 
