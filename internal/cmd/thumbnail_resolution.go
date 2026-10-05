@@ -1,9 +1,12 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/elboletaire/ttools/internal/config"
 )
@@ -47,4 +50,29 @@ func printDetectedThumbnail(out io.Writer, thumbPath string, autoDetected bool) 
 	if autoDetected {
 		fmt.Fprintf(out, "🖼️ Using detected thumbnail %s\n", filepath.Base(thumbPath))
 	}
+}
+
+// findSiblingThumbnail looks for <name>-thumb.jpg or <name>-thumb.jpeg next to filePath.
+func findSiblingThumbnail(filePath string) (string, bool, error) {
+	dir := filepath.Dir(filePath)
+	name := filepath.Base(filePath)
+	ext := filepath.Ext(name)
+	base := strings.TrimSuffix(name, ext)
+	candidates := []string{
+		filepath.Join(dir, base+"-thumb.jpg"),
+		filepath.Join(dir, base+"-thumb.jpeg"),
+	}
+
+	for _, candidate := range candidates {
+		_, err := os.Stat(candidate)
+		switch {
+		case err == nil:
+			return candidate, true, nil
+		case errors.Is(err, os.ErrNotExist):
+			continue
+		default:
+			return "", false, fmt.Errorf("checking thumbnail %q: %w", candidate, err)
+		}
+	}
+	return "", false, nil
 }

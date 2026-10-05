@@ -16,6 +16,9 @@ import (
 	"github.com/elboletaire/ttools/internal/telegram"
 )
 
+// defaultAutoCaptionRegex captures everything after the first "-" in a file name.
+const defaultAutoCaptionRegex = "^[^-]*-\\s*(.*)$"
+
 type postsNewOptions struct {
 	// Text/message options
 	message     string
