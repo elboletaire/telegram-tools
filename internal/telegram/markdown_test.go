@@ -1,6 +1,7 @@
 package telegram
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/gotd/td/tg"
@@ -470,5 +471,127 @@ func TestParseMarkdownV2_BlockquoteWithMultipleNestedFormats(t *testing.T) {
 	}
 	if italic.Offset != 7 || italic.Length != 6 {
 		t.Errorf("Italic entity: expected offset=7, length=6, got offset=%d, length=%d", italic.Offset, italic.Length)
+	}
+}
+
+func TestParseMarkdownV2_DelimiterEdgeCases(t *testing.T) {
+	type wantEntity struct {
+		kind   string
+		offset int
+		length int
+	}
+
+	tests := []struct {
+		name      string
+		input     string
+		plaintext string
+		entities  []wantEntity
+	}{
+		{
+			name:      "intraword underscores and bare url",
+			input:     "set my_var and other_thing in https://x.test/a_b_c",
+			plaintext: "set my_var and other_thing in https://x.test/a_b_c",
+		},
+		{
+			name:      "snake case identifier",
+			input:     "snake_case_name",
+			plaintext: "snake_case_name",
+		},
+		{
+			name:      "dunder identifier",
+			input:     "__init__.py",
+			plaintext: "__init__.py",
+		},
+		{
+			name:      "bare url with underscores after slashes",
+			input:     "see https://x.test/_private_/page now",
+			plaintext: "see https://x.test/_private_/page now",
+		},
+		{
+			name:      "underscores surrounded by spaces",
+			input:     "a _ not italic _ b",
+			plaintext: "a _ not italic _ b",
+		},
+		{
+			name:      "italic at start",
+			input:     "_italic_ text",
+			plaintext: "italic text",
+			entities:  []wantEntity{{"italic", 0, 6}},
+		},
+		{
+			name:      "italic before punctuation",
+			input:     "an _emphasised_ word.",
+			plaintext: "an emphasised word.",
+			entities:  []wantEntity{{"italic", 3, 10}},
+		},
+		{
+			name:      "italic wrapping a url with underscores",
+			input:     "_see https://x.test/a_b_",
+			plaintext: "see https://x.test/a_b",
+			entities:  []wantEntity{{"italic", 0, 22}},
+		},
+		{
+			name:      "italic with intraword underscore inside",
+			input:     "_set my_var now_",
+			plaintext: "set my_var now",
+			entities:  []wantEntity{{"italic", 0, 14}},
+		},
+		{
+			name:      "double asterisks surrounded by spaces",
+			input:     "2 ** 3 and 4 ** 5",
+			plaintext: "2 ** 3 and 4 ** 5",
+		},
+		{
+			name:      "bold url with underscores",
+			input:     "**https://x.test/a_b**",
+			plaintext: "https://x.test/a_b",
+			entities:  []wantEntity{{"bold", 0, 18}},
+		},
+		{
+			name:      "inline code next to identifier",
+			input:     "x_y `a_b` z",
+			plaintext: "x_y a_b z",
+			entities:  []wantEntity{{"code", 4, 3}},
+		},
+		{
+			name:      "link with underscores in text and url",
+			input:     "[a_b](https://x.test/c_d)",
+			plaintext: "a_b",
+			entities:  []wantEntity{{"link", 0, 3}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			plaintext, entities, err := ParseMarkdownV2(tt.input)
+			if err != nil {
+				t.Fatalf("ParseMarkdownV2 failed: %v", err)
+			}
+			if plaintext != tt.plaintext {
+				t.Errorf("plaintext: expected %q, got %q", tt.plaintext, plaintext)
+			}
+			if len(entities) != len(tt.entities) {
+				t.Fatalf("expected %d entities, got %d: %#v", len(tt.entities), len(entities), entities)
+			}
+			for i, want := range tt.entities {
+				var kind string
+				var offset, length int
+				switch e := entities[i].(type) {
+				case *tg.MessageEntityItalic:
+					kind, offset, length = "italic", e.Offset, e.Length
+				case *tg.MessageEntityBold:
+					kind, offset, length = "bold", e.Offset, e.Length
+				case *tg.MessageEntityCode:
+					kind, offset, length = "code", e.Offset, e.Length
+				case *tg.MessageEntityTextURL:
+					kind, offset, length = "link", e.Offset, e.Length
+				default:
+					kind = fmt.Sprintf("%T", e)
+				}
+				if kind != want.kind || offset != want.offset || length != want.length {
+					t.Errorf("entity %d: expected %s(%d,%d), got %s(%d,%d)", i, want.kind, want.offset, want.length, kind, offset, length)
+				}
+			}
+		})
 	}
 }
