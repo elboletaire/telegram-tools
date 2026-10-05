@@ -7,7 +7,6 @@
 
 [![CI](https://img.shields.io/github/actions/workflow/status/elboletaire/ttools/ci.yml?style=flat-square&label=CI)](https://github.com/elboletaire/ttools/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/elboletaire/ttools?style=flat-square)](https://github.com/elboletaire/ttools/releases)
-[![Go version](https://img.shields.io/github/go-mod/go-version/elboletaire/ttools?style=flat-square)](go.mod)
 [![License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](LICENSE)
 
 [Features](#features) • [Installation](#installation) • [Setup](#setup) • [Usage](#usage) • [Formatting](#formatting)
