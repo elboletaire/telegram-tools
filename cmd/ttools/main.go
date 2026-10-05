@@ -1,7 +1,9 @@
 package main
 
 import (
-	"log"
+	"fmt"
+	"io"
+	"os"
 	"runtime/debug"
 
 	"github.com/elboletaire/telegram-tools/internal/cmd"
@@ -12,8 +14,13 @@ var version = ""
 
 func main() {
 	if err := cmd.Execute(buildVersion()); err != nil {
-		log.Fatal(err)
+		reportError(os.Stderr, err)
+		os.Exit(1)
 	}
+}
+
+func reportError(w io.Writer, err error) {
+	fmt.Fprintf(w, "Error: %v\n", err)
 }
 
 // buildVersion falls back to the module version embedded by `go install
