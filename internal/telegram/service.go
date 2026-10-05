@@ -203,6 +203,9 @@ func (s *Service) Upload(ctx context.Context, req UploadRequest) error {
 	if strings.TrimSpace(req.ChatId) == "" {
 		return fmt.Errorf("channel is required")
 	}
+	if err := s.checkCaption(req.Caption); err != nil {
+		return err
+	}
 
 	fileName := filepath.Base(req.FilePath)
 	var thumbName string
@@ -433,6 +436,11 @@ func (s *Service) ReplaceMedia(ctx context.Context, req ReplaceRequest) error {
 	}
 	if strings.TrimSpace(req.ChatId) == "" {
 		return fmt.Errorf("channel is required")
+	}
+	if req.CaptionSet && !req.ClearCaption {
+		if err := s.checkCaption(req.Caption); err != nil {
+			return err
+		}
 	}
 
 	fileName := filepath.Base(req.FilePath)
