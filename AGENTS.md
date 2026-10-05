@@ -78,5 +78,7 @@ and `go test ./...` to pass. Releases are built by GoReleaser
   touches bare URLs; keep regression tests in `markdown_test.go` green.
 - `--autocaption` captions are always plain text (file names aren't markup).
 - Progress UIs only render on a TTY; otherwise they fall back to plain logs.
-- When piping from a shell without stdin, `posts new` waits for input: pass
-  the text as an argument and redirect `</dev/null` in scripts.
+- Message input priority is `--message-file`, `--message`, arguments, then
+  piped stdin (`readMessageInput`); stdin is never read when another source
+  is given, so cron/CI runs don't block.
+- Bots can't resolve numeric chat ids (no dialog access): they need `@username`.
