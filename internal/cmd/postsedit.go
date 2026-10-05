@@ -238,6 +238,7 @@ func runMediaReplace(ctx context.Context, cmd *cobra.Command, args []string, opt
 		Caption:      message,
 		CaptionSet:   messageProvided || opts.clearMessage,
 		ClearCaption: opts.clearMessage,
+		ParseMode:    parseModeFor(opts.html, opts.plain),
 		Silent:       opts.silent,
 	})
 }
@@ -246,12 +247,7 @@ func runTextEdit(ctx context.Context, cmd *cobra.Command, args []string, opts *p
 	out := cmd.OutOrStdout()
 
 	// Determine parse mode
-	parseMode := "MarkdownV2" // default
-	if opts.html {
-		parseMode = "HTML"
-	} else if opts.plain {
-		parseMode = ""
-	}
+	parseMode := parseModeFor(opts.html, opts.plain)
 
 	// Gather message from various sources
 	message, messageProvided, err := readMessageInput(messageInput{

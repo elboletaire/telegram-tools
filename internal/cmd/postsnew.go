@@ -278,6 +278,7 @@ func runMediaUpload(ctx context.Context, cmd *cobra.Command, args []string, opts
 				FilePath:  filePath,
 				ThumbPath: thumb,
 				Caption:   albumItemCaption(i, caption, usedAutoCaption),
+				ParseMode: captionParseMode(parseModeFor(opts.html, opts.plain), usedAutoCaption),
 			})
 			continue
 		}
@@ -289,6 +290,7 @@ func runMediaUpload(ctx context.Context, cmd *cobra.Command, args []string, opts
 			ThumbPath:  thumb,
 			Caption:    caption,
 			CaptionSet: captionSet,
+			ParseMode:  captionParseMode(parseModeFor(opts.html, opts.plain), usedAutoCaption),
 			Silent:     opts.silent,
 		}); err != nil {
 			return err
@@ -315,6 +317,28 @@ func runMediaUpload(ctx context.Context, cmd *cobra.Command, args []string, opts
 	return nil
 }
 
+// parseModeFor maps the --html and --plain flags to a Telegram parse mode;
+// markdown is the default.
+func parseModeFor(html, plain bool) string {
+	switch {
+	case html:
+		return "HTML"
+	case plain:
+		return ""
+	default:
+		return "MarkdownV2"
+	}
+}
+
+// captionParseMode returns how a caption is parsed. Captions generated from
+// file names are always plain text: "_" or "*" in a name is not formatting.
+func captionParseMode(parseMode string, autoCaption bool) string {
+	if autoCaption {
+		return ""
+	}
+	return parseMode
+}
+
 // albumItemCaption returns the caption of the index-th file of an album: a
 // message caption goes only on the first file (Telegram shows it for the whole
 // album), while auto-captions are set on every file.
@@ -329,12 +353,7 @@ func runTextMessage(ctx context.Context, cmd *cobra.Command, args []string, opts
 	out := cmd.OutOrStdout()
 
 	// Determine parse mode
-	parseMode := "MarkdownV2" // default
-	if opts.html {
-		parseMode = "HTML"
-	} else if opts.plain {
-		parseMode = ""
-	}
+	parseMode := parseModeFor(opts.html, opts.plain)
 
 	text, _, err := readMessageInput(messageInput{
 		file:       opts.messageFile,

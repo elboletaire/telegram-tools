@@ -142,27 +142,33 @@ func withRange(e tg.MessageEntityClass, offset, length int) tg.MessageEntityClas
 	return clipped
 }
 
-// PrepareMessage turns a message into the chunks to send: markdown or HTML is
-// parsed into entities when parseMode is "MarkdownV2" or "HTML", and the result
-// is split at Telegram's message length limit.
-func PrepareMessage(message, parseMode string) ([]MessageChunk, error) {
-	var entities []tg.MessageEntityClass
+// ParseMessage converts message into plaintext plus entities according to
+// parseMode: "MarkdownV2", "HTML", or "" for plain text.
+func ParseMessage(message, parseMode string) (string, []tg.MessageEntityClass, error) {
 	switch parseMode {
 	case "MarkdownV2":
-		parsedText, parsedEntities, err := ParseMarkdownV2(message)
+		text, entities, err := ParseMarkdownV2(message)
 		if err != nil {
-			return nil, fmt.Errorf("parse markdown: %w", err)
+			return "", nil, fmt.Errorf("parse markdown: %w", err)
 		}
-		message = parsedText
-		entities = parsedEntities
+		return text, entities, nil
 	case "HTML":
-		parsedText, parsedEntities, err := ParseHTML(message)
+		text, entities, err := ParseHTML(message)
 		if err != nil {
-			return nil, fmt.Errorf("parse html: %w", err)
+			return "", nil, fmt.Errorf("parse html: %w", err)
 		}
-		message = parsedText
-		entities = parsedEntities
+		return text, entities, nil
+	default:
+		return message, nil, nil
 	}
+}
 
-	return SplitMessage(message, entities, MaxMessageLength), nil
+// PrepareMessage turns a message into the chunks to send: it is parsed with
+// ParseMessage and split at Telegram's message length limit.
+func PrepareMessage(message, parseMode string) ([]MessageChunk, error) {
+	text, entities, err := ParseMessage(message, parseMode)
+	if err != nil {
+		return nil, err
+	}
+	return SplitMessage(text, entities, MaxMessageLength), nil
 }

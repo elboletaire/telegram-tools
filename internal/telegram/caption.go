@@ -1,6 +1,10 @@
 package telegram
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/gotd/td/tg"
+)
 
 // Telegram limits media captions, in UTF-16 code units. Premium accounts get a
 // higher limit; bots can never be Premium.
@@ -26,15 +30,20 @@ func CheckCaptionLength(caption string, bot bool) (warning string, err error) {
 	}
 }
 
-// checkCaption runs CheckCaptionLength for this service's account type and
-// prints any warning.
-func (s *Service) checkCaption(caption string) error {
-	warning, err := CheckCaptionLength(caption, s.cfg.Session.BotToken != "")
+// prepareCaption parses a caption according to parseMode and checks the
+// length of the result (markup doesn't count towards Telegram's limit),
+// printing a warning when it needs Telegram Premium.
+func (s *Service) prepareCaption(caption, parseMode string) (string, []tg.MessageEntityClass, error) {
+	text, entities, err := ParseMessage(caption, parseMode)
 	if err != nil {
-		return err
+		return "", nil, fmt.Errorf("caption: %w", err)
+	}
+	warning, err := CheckCaptionLength(text, s.cfg.Session.BotToken != "")
+	if err != nil {
+		return "", nil, err
 	}
 	if warning != "" && s.io.err != nil {
 		fmt.Fprintf(s.io.err, "warning: %s\n", warning)
 	}
-	return nil
+	return text, entities, nil
 }

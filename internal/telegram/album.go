@@ -20,6 +20,7 @@ type AlbumItem struct {
 	FilePath  string
 	ThumbPath string
 	Caption   string
+	ParseMode string // "MarkdownV2", "HTML", or "" for plain text
 }
 
 // UploadAlbumRequest uploads several files as grouped posts (albums).
@@ -27,6 +28,11 @@ type UploadAlbumRequest struct {
 	ChatId string
 	Items  []AlbumItem
 	Silent bool
+}
+
+type parsedCaption struct {
+	text     string
+	entities []tg.MessageEntityClass
 }
 
 // albumGroup is the kind of items that can share an album: photos and videos
@@ -160,6 +166,7 @@ func (s *Service) UploadAlbum(ctx context.Context, req UploadAlbumRequest) ([]in
 
 	paths := make([]string, len(req.Items))
 	groups := make([]albumGroup, len(req.Items))
+	captions := make([]parsedCaption, len(req.Items))
 	for i, item := range req.Items {
 		mimeType, err := detectMimeType(item.FilePath)
 		if err != nil {
@@ -167,9 +174,11 @@ func (s *Service) UploadAlbum(ctx context.Context, req UploadAlbumRequest) ([]in
 		}
 		paths[i] = item.FilePath
 		groups[i] = albumGroupForMIME(mimeType)
-		if err := s.checkCaption(item.Caption); err != nil {
+		text, entities, err := s.prepareCaption(item.Caption, item.ParseMode)
+		if err != nil {
 			return nil, fmt.Errorf("%s: %w", filepath.Base(item.FilePath), err)
 		}
+		captions[i] = parsedCaption{text: text, entities: entities}
 	}
 	if err := checkAlbumGroups(paths, groups); err != nil {
 		return nil, err
@@ -204,7 +213,13 @@ func (s *Service) UploadAlbum(ctx context.Context, req UploadAlbumRequest) ([]in
 				if err != nil {
 					return fmt.Errorf("generate random id: %w", err)
 				}
-				multi = append(multi, tg.InputSingleMedia{Media: media, RandomID: randomID, Message: item.Caption})
+				caption := captions[done-1]
+				multi = append(multi, tg.InputSingleMedia{
+					Media:    media,
+					RandomID: randomID,
+					Message:  caption.text,
+					Entities: caption.entities,
+				})
 			}
 
 			ids, err := s.sendAlbum(ctx, api, channel, req, multi)
@@ -295,6 +310,9 @@ func (s *Service) sendAlbum(ctx context.Context, api *tg.Client, channel *channe
 				RandomID: multi[0].RandomID,
 			}
 			send.SetSilent(req.Silent)
+			if len(multi[0].Entities) > 0 {
+				send.SetEntities(multi[0].Entities)
+			}
 			updates, callErr = api.MessagesSendMedia(ctx, send)
 			return callErr
 		}

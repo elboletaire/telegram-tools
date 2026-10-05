@@ -72,3 +72,45 @@ func TestReplaceMedia_RejectsTooLongCaptionBeforeUploading(t *testing.T) {
 		t.Fatalf("expected caption too long error, got %v", err)
 	}
 }
+
+func TestPrepareCaption_ParsesFormatting(t *testing.T) {
+	svc := NewService(&config.Config{}, WithIO(nil, &bytes.Buffer{}, &bytes.Buffer{}))
+
+	tests := []struct {
+		name      string
+		caption   string
+		parseMode string
+		wantText  string
+		wantCount int
+	}{
+		{name: "markdown", caption: "**bold** and my_var", parseMode: "MarkdownV2", wantText: "bold and my_var", wantCount: 1},
+		{name: "html", caption: "<b>bold</b> <u>u</u>", parseMode: "HTML", wantText: "bold u", wantCount: 2},
+		{name: "plain", caption: "**bold**", parseMode: "", wantText: "**bold**", wantCount: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			text, entities, err := svc.prepareCaption(tt.caption, tt.parseMode)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if text != tt.wantText || len(entities) != tt.wantCount {
+				t.Errorf("expected (%q, %d entities), got (%q, %d entities)", tt.wantText, tt.wantCount, text, len(entities))
+			}
+		})
+	}
+}
+
+func TestPrepareCaption_LengthCountsParsedText(t *testing.T) {
+	bot := NewService(&config.Config{Session: config.SessionConfig{BotToken: "123:fake"}}, WithIO(nil, &bytes.Buffer{}, &bytes.Buffer{}))
+
+	// The markup pushes the raw text over 1024, but Telegram counts the result.
+	fits := "**" + strings.Repeat("a", MaxCaptionLength) + "**"
+	if _, _, err := bot.prepareCaption(fits, "MarkdownV2"); err != nil {
+		t.Errorf("expected a %d-character parsed caption to fit, got %v", MaxCaptionLength, err)
+	}
+
+	tooLong := "**" + strings.Repeat("a", MaxCaptionLength+1) + "**"
+	if _, _, err := bot.prepareCaption(tooLong, "MarkdownV2"); err == nil || !strings.Contains(err.Error(), "caption too long") {
+		t.Errorf("expected caption too long, got %v", err)
+	}
+}

@@ -200,9 +200,9 @@ Use `--html` for [Telegram-style HTML](https://core.telegram.org/bots/api#html-s
 which also supports underline, strikethrough and spoilers, or `--plain` to send
 the text as is.
 
-> [!NOTE]
-> Captions of new uploads are currently sent as plain text, without parsing
-> markdown or HTML.
+The same applies to media captions. Captions generated with `--autocaption`
+are always sent as plain text, since file names aren't markup. Caption limits
+count the formatted text, not the markup.
 
 ## Development
 

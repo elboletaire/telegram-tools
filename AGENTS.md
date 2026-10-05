@@ -46,7 +46,10 @@ and `go test ./...` to pass. Releases are built by GoReleaser
   - `split.go`: `PrepareMessage` parses (MarkdownV2 / HTML / plain) and splits
     at Telegram's 4096 UTF-16 unit limit. Both sending and `--dry-run` go
     through it; keep it that way.
-  - `caption.go`: caption length checks (1024, 2048 with Premium, bots 1024).
+  - `caption.go`: captions are parsed like messages (`prepareCaption`) and their
+    parsed length checked (1024, 2048 with Premium, bots 1024).
+  - `album.go`: `--group` uploads (`messages.uploadMedia` + `sendMultiMedia`,
+    up to 10 files per album).
   - `preview.go`: terminal rendering used by `--dry-run`.
   - `media.go`: uploads, ffprobe metadata, thumbnails.
 - `internal/ui` – bubbletea list/selector UIs and progress displays.
@@ -73,7 +76,7 @@ and `go test ./...` to pass. Releases are built by GoReleaser
   account.
 - The markdown parser only treats `_` as italic at word boundaries and never
   touches bare URLs; keep regression tests in `markdown_test.go` green.
-- Media captions on upload are currently sent as plain text (not parsed).
+- `--autocaption` captions are always plain text (file names aren't markup).
 - Progress UIs only render on a TTY; otherwise they fall back to plain logs.
 - When piping from a shell without stdin, `posts new` waits for input: pass
   the text as an argument and redirect `</dev/null` in scripts.

@@ -104,6 +104,7 @@ type UploadRequest struct {
 	ThumbPath  string
 	Caption    string
 	CaptionSet bool
+	ParseMode  string // "MarkdownV2", "HTML", or "" for plain text
 	Silent     bool
 }
 
@@ -116,6 +117,7 @@ type ReplaceRequest struct {
 	Caption      string
 	CaptionSet   bool
 	ClearCaption bool
+	ParseMode    string // "MarkdownV2", "HTML", or "" for plain text
 	Silent       bool
 }
 
@@ -203,7 +205,8 @@ func (s *Service) Upload(ctx context.Context, req UploadRequest) error {
 	if strings.TrimSpace(req.ChatId) == "" {
 		return fmt.Errorf("channel is required")
 	}
-	if err := s.checkCaption(req.Caption); err != nil {
+	captionText, captionEntities, err := s.prepareCaption(req.Caption, req.ParseMode)
+	if err != nil {
 		return err
 	}
 
@@ -224,7 +227,7 @@ func (s *Service) Upload(ctx context.Context, req UploadRequest) error {
 	}
 
 	var successMessage string
-	err := s.run(ctx, func(ctx context.Context, api *tg.Client) error {
+	err = s.run(ctx, func(ctx context.Context, api *tg.Client) error {
 		channel, err := s.resolveChat(ctx, api, req.ChatId)
 		if err != nil {
 			return err
@@ -247,10 +250,13 @@ func (s *Service) Upload(ctx context.Context, req UploadRequest) error {
 		send := &tg.MessagesSendMediaRequest{
 			Peer:     channel.peer,
 			Media:    media,
-			Message:  req.Caption,
+			Message:  captionText,
 			RandomID: randomID,
 		}
 		send.SetSilent(req.Silent)
+		if len(captionEntities) > 0 {
+			send.SetEntities(captionEntities)
+		}
 
 		var updates tg.UpdatesClass
 		onFlood := s.buildFloodLogger(req.ChatId, fileName)
@@ -437,8 +443,12 @@ func (s *Service) ReplaceMedia(ctx context.Context, req ReplaceRequest) error {
 	if strings.TrimSpace(req.ChatId) == "" {
 		return fmt.Errorf("channel is required")
 	}
+	var captionText string
+	var captionEntities []tg.MessageEntityClass
 	if req.CaptionSet && !req.ClearCaption {
-		if err := s.checkCaption(req.Caption); err != nil {
+		var err error
+		captionText, captionEntities, err = s.prepareCaption(req.Caption, req.ParseMode)
+		if err != nil {
 			return err
 		}
 	}
@@ -466,8 +476,8 @@ func (s *Service) ReplaceMedia(ctx context.Context, req ReplaceRequest) error {
 			return err
 		}
 
-		caption := req.Caption
-		var entities []tg.MessageEntityClass
+		caption := captionText
+		entities := captionEntities
 		switch {
 		case req.ClearCaption:
 			caption = ""

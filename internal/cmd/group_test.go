@@ -22,3 +22,24 @@ func TestAlbumItemCaption(t *testing.T) {
 		})
 	}
 }
+
+func TestCaptionParseMode(t *testing.T) {
+	tests := []struct {
+		name        string
+		html, plain bool
+		autoCaption bool
+		want        string
+	}{
+		{name: "markdown by default", want: "MarkdownV2"},
+		{name: "html", html: true, want: "HTML"},
+		{name: "plain", plain: true, want: ""},
+		{name: "file names are never markup", html: true, autoCaption: true, want: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := captionParseMode(parseModeFor(tt.html, tt.plain), tt.autoCaption); got != tt.want {
+				t.Errorf("expected %q, got %q", tt.want, got)
+			}
+		})
+	}
+}
