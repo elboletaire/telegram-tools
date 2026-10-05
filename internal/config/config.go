@@ -19,7 +19,7 @@ type Config struct {
 	Defaults DefaultsConfig `mapstructure:"defaults"`
 }
 
-// APIConfig stores Telegram API credentials from apps.telegram.org
+// APIConfig stores Telegram API credentials from my.telegram.org
 type APIConfig struct {
 	ID   int    `mapstructure:"id"`
 	Hash string `mapstructure:"hash"`

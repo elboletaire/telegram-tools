@@ -50,8 +50,8 @@ func newRootCommand(version string) *cobra.Command {
 
 	root.PersistentFlags().StringVar(&appState.cfgFile, "config", "", fmt.Sprintf("config file path (default %s)", config.DefaultConfigFile()))
 
-	addPersistentConfigFlag(root.PersistentFlags(), "api-id", "Telegram API ID from apps.telegram.org", "api.id")
-	addPersistentConfigFlag(root.PersistentFlags(), "api-hash", "Telegram API hash from apps.telegram.org", "api.hash")
+	addPersistentConfigFlag(root.PersistentFlags(), "api-id", "Telegram API ID from my.telegram.org", "api.id")
+	addPersistentConfigFlag(root.PersistentFlags(), "api-hash", "Telegram API hash from my.telegram.org", "api.hash")
 	addPersistentConfigFlag(root.PersistentFlags(), "phone", "Phone number for Telegram login", "session.phone")
 	addPersistentConfigFlag(root.PersistentFlags(), "password", "Two-factor authentication password (not login code)", "session.password")
 	addPersistentConfigFlag(root.PersistentFlags(), "bot-token", "Bot token from @BotFather (alternative to phone auth)", "session.bot_token")
