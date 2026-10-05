@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
-	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -216,8 +214,16 @@ func runMediaReplace(ctx context.Context, cmd *cobra.Command, args []string, opt
 	printDetectedThumbnail(out, thumb, autoThumbFound)
 
 	// Gather caption/message
-	message := gatherMessageEdit(cmd, args, opts)
-	messageProvided := cmd.Flags().Changed("message") || opts.messageFile != "" || isPipedInput() || len(args) > 0
+	message, messageProvided, err := readMessageInput(messageInput{
+		file:       opts.messageFile,
+		message:    opts.message,
+		messageSet: cmd.Flags().Changed("message"),
+		args:       args,
+		stdin:      cmd.InOrStdin(),
+	})
+	if err != nil {
+		return err
+	}
 
 	// Check for conflicting flags
 	if messageProvided && opts.clearMessage {
@@ -248,8 +254,16 @@ func runTextEdit(ctx context.Context, cmd *cobra.Command, args []string, opts *p
 	}
 
 	// Gather message from various sources
-	message := gatherMessageEdit(cmd, args, opts)
-	messageProvided := cmd.Flags().Changed("message") || opts.messageFile != "" || isPipedInput() || len(args) > 0
+	message, messageProvided, err := readMessageInput(messageInput{
+		file:       opts.messageFile,
+		message:    opts.message,
+		messageSet: cmd.Flags().Changed("message"),
+		args:       args,
+		stdin:      cmd.InOrStdin(),
+	})
+	if err != nil {
+		return err
+	}
 
 	// Check for conflicting flags
 	if messageProvided && opts.clearMessage {
@@ -297,38 +311,6 @@ func runTextEdit(ctx context.Context, cmd *cobra.Command, args []string, opts *p
 	}
 
 	return nil
-}
-
-// gatherMessageEdit collects message/caption from various sources for edit command
-func gatherMessageEdit(cmd *cobra.Command, args []string, opts *postsEditOptions) string {
-	// Priority 1: message-file
-	if opts.messageFile != "" {
-		filePath, err := config.ExpandPath(opts.messageFile)
-		if err == nil {
-			if content, err := os.ReadFile(filePath); err == nil {
-				return strings.TrimSpace(string(content))
-			}
-		}
-	}
-
-	// Priority 2: piped stdin (text only)
-	if isPipedInput() {
-		if content, err := io.ReadAll(cmd.InOrStdin()); err == nil {
-			return strings.TrimSpace(string(content))
-		}
-	}
-
-	// Priority 3: --message flag
-	if opts.message != "" {
-		return opts.message
-	}
-
-	// Priority 4: args
-	if len(args) > 0 {
-		return strings.Join(args, " ")
-	}
-
-	return ""
 }
 
 // formatMessagePreview creates a truncated preview of a message

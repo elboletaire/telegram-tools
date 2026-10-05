@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -179,10 +178,18 @@ func runMediaUpload(ctx context.Context, cmd *cobra.Command, args []string, opts
 	out := cmd.OutOrStdout()
 
 	// Gather message/caption
-	message := gatherMessage(cmd, args, opts)
+	message, messageProvided, err := readMessageInput(messageInput{
+		file:       opts.messageFile,
+		message:    opts.message,
+		messageSet: cmd.Flags().Changed("message"),
+		args:       args,
+		stdin:      cmd.InOrStdin(),
+	})
+	if err != nil {
+		return err
+	}
 
 	// Check for conflicting flags
-	messageProvided := cmd.Flags().Changed("message") || opts.messageFile != "" || isPipedInput() || len(args) > 0
 	if messageProvided && opts.autoCaption {
 		return fmt.Errorf("cannot use both --message (or message input) and --autocaption together")
 	}
@@ -299,41 +306,17 @@ func runTextMessage(ctx context.Context, cmd *cobra.Command, args []string, opts
 		parseMode = ""
 	}
 
-	// Gather input from various sources
-	var messages []string
-
-	// Priority 1: Read from message file
-	if opts.messageFile != "" {
-		filePath, err := config.ExpandPath(opts.messageFile)
-		if err != nil {
-			return fmt.Errorf("expand message file path: %w", err)
-		}
-		content, err := os.ReadFile(filePath)
-		if err != nil {
-			return fmt.Errorf("read message file: %w", err)
-		}
-		messages = splitMessages(string(content), opts.delimiter)
+	text, _, err := readMessageInput(messageInput{
+		file:       opts.messageFile,
+		message:    opts.message,
+		messageSet: cmd.Flags().Changed("message"),
+		args:       args,
+		stdin:      cmd.InOrStdin(),
+	})
+	if err != nil {
+		return err
 	}
-
-	// Priority 2: Read from stdin if piped
-	if len(messages) == 0 && isPipedInput() {
-		content, err := io.ReadAll(cmd.InOrStdin())
-		if err != nil {
-			return fmt.Errorf("read stdin: %w", err)
-		}
-		messages = splitMessages(string(content), opts.delimiter)
-	}
-
-	// Priority 3: Use --message flag
-	if len(messages) == 0 && opts.message != "" {
-		messages = splitMessages(opts.message, opts.delimiter)
-	}
-
-	// Priority 4: Use positional arguments
-	if len(messages) == 0 && len(args) > 0 {
-		combined := strings.Join(args, " ")
-		messages = splitMessages(combined, opts.delimiter)
-	}
+	messages := splitMessages(text, opts.delimiter)
 
 	if len(messages) == 0 {
 		return fmt.Errorf("no messages provided (use args, --message, --message-file, or pipe from stdin)")
@@ -393,38 +376,6 @@ func runTextMessage(ctx context.Context, cmd *cobra.Command, args []string, opts
 	return nil
 }
 
-// gatherMessage collects message/caption from various sources
-func gatherMessage(cmd *cobra.Command, args []string, opts *postsNewOptions) string {
-	// Priority 1: message-file
-	if opts.messageFile != "" {
-		filePath, err := config.ExpandPath(opts.messageFile)
-		if err == nil {
-			if content, err := os.ReadFile(filePath); err == nil {
-				return strings.TrimSpace(string(content))
-			}
-		}
-	}
-
-	// Priority 2: piped stdin (text only)
-	if isPipedInput() {
-		if content, err := io.ReadAll(cmd.InOrStdin()); err == nil {
-			return strings.TrimSpace(string(content))
-		}
-	}
-
-	// Priority 3: --message flag
-	if opts.message != "" {
-		return opts.message
-	}
-
-	// Priority 4: args
-	if len(args) > 0 {
-		return strings.Join(args, " ")
-	}
-
-	return ""
-}
-
 // splitMessages splits content by delimiter and returns non-empty messages
 func splitMessages(content, delimiter string) []string {
 	parts := strings.Split(content, delimiter)
@@ -436,15 +387,6 @@ func splitMessages(content, delimiter string) []string {
 		}
 	}
 	return messages
-}
-
-// isPipedInput checks if data is being piped into stdin
-func isPipedInput() bool {
-	stat, err := os.Stdin.Stat()
-	if err != nil {
-		return false
-	}
-	return (stat.Mode() & os.ModeCharDevice) == 0
 }
 
 // detectArgsType checks if arguments are files, text, or mixed
