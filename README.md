@@ -1,58 +1,92 @@
+<!-- prettier-ignore -->
+<div align="center">
+
 # ttools
 
-Command-line tool for managing Telegram channel posts: send messages, upload
-media, edit posts and explore content, without relying on third-party bots.
+*Manage your Telegram channel posts from the terminal*
 
-It talks to Telegram directly over MTProto (via [gotd/td](https://github.com/gotd/td)),
-either as your own user account or as a bot.
+[![CI](https://img.shields.io/github/actions/workflow/status/elboletaire/ttools/ci.yml?style=flat-square&label=CI)](https://github.com/elboletaire/ttools/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/elboletaire/ttools?style=flat-square)](https://github.com/elboletaire/ttools/releases)
+[![Go version](https://img.shields.io/github/go-mod/go-version/elboletaire/ttools?style=flat-square)](go.mod)
+[![License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](LICENSE)
+
+[Features](#features) • [Installation](#installation) • [Setup](#setup) • [Usage](#usage) • [Formatting](#formatting)
+
+</div>
+
+`ttools` sends messages, uploads media, edits and browses posts in your Telegram
+channels, without third-party bots in the middle. It talks to Telegram directly
+over MTProto (via [gotd/td](https://github.com/gotd/td)), as your own user
+account or as a bot, so it fits both day-to-day use and CI pipelines.
+
+```bash
+cat release-notes.md | ttools posts new --chat @mychannel
+```
+
+## Features
+
+- **Text posts**: markdown or HTML formatting, batches of posts from one file,
+  and automatic splitting of messages over Telegram's 4096-character limit.
+- **Media uploads**: videos, photos and documents with captions, auto-detected
+  thumbnails, captions from file names and grouped albums. Large files show a
+  progress bar with ETA.
+- **Editing**: replace the text, caption or media of an existing post, picking
+  it by id or from an interactive list.
+- **Browsing**: page through and search posts and chats in the terminal.
+- **Dry runs**: preview exactly what would be sent, split and rendered, without
+  connecting to Telegram.
+- **Friendly to Telegram limits**: waits out `FLOOD_WAIT` responses and
+  validates caption lengths before uploading.
 
 ## Installation
 
-**Prebuilt binaries**: download the archive for your platform from the
-[releases page](https://github.com/elboletaire/ttools/releases) (Linux and
-macOS on amd64/arm64, Windows on amd64), extract it and put `ttools` in your
-`PATH`.
+Download a prebuilt binary for Linux, macOS or Windows from the
+[releases page](https://github.com/elboletaire/ttools/releases), extract it
+and put `ttools` in your `PATH`.
 
-**With Go** (1.25+):
+Or install it with Go 1.25+:
 
 ```bash
 go install github.com/elboletaire/ttools/cmd/ttools@latest
 ```
 
-**From source**:
+Or build it from source:
 
 ```bash
 git clone https://github.com/elboletaire/ttools.git
 cd ttools
-make build        # produces ./ttools
+make build
 ```
 
-`ffprobe` (part of [FFmpeg](https://ffmpeg.org/download.html)) is recommended:
-it reads video metadata so Telegram plays videos inline. Without it, videos are
-uploaded as generic files (`brew install ffmpeg`, `apt install ffmpeg`,
-`pacman -S ffmpeg`…).
+> [!TIP]
+> Install [FFmpeg](https://ffmpeg.org/download.html) so `ttools` can use
+> `ffprobe` to read video metadata. Without it, videos are uploaded as plain
+> files instead of streamable videos.
 
 ## Setup
 
-### 1. Get your own API credentials
+### 1. Get your API credentials
 
-Every user needs their own `api_id` and `api_hash`: log in at
-[my.telegram.org](https://my.telegram.org/apps), open *API development tools*
-and create an application. They identify *your* app to Telegram, so don't share
-them or reuse someone else's.
+Log in at [my.telegram.org](https://my.telegram.org/apps), open
+*API development tools* and create an application to get an `api_id` and
+`api_hash`.
 
-### 2. Pick an authentication mode
+> [!IMPORTANT]
+> Every user needs their own credentials. They identify *your* application to
+> Telegram, so don't share them or reuse someone else's.
 
-| | User account (MTProto) | Bot |
+### 2. Choose how to log in
+
+| | User account | Bot |
 |---|---|---|
-| Logs in as | You, with your phone number | A bot from [@BotFather](https://t.me/botfather) |
-| First run | Asks for the login code (and 2FA password if enabled) | Non-interactive |
+| Logs in as | You, with your phone number | A bot created with [@BotFather](https://t.me/botfather) |
+| First run | Asks for the login code (and 2FA password) | Non-interactive |
 | Can post to | Any channel where you can post | Channels where the bot is an admin |
-| Browsing (`posts list/find`, `chats`, interactive selector) | Yes | No, Telegram doesn't let bots read history or dialogs |
-| Caption limit | 1024 chars (2048 with Premium) | 1024 chars |
+| Browse posts and chats | Yes | No, Telegram doesn't allow it for bots |
+| Caption limit | 1024 characters (2048 with Premium) | 1024 characters |
 
-Either way the session is saved (by default to
-`~/.local/share/ttools/session.json`), so later runs don't log in again.
+Either way the session is saved (by default in
+`~/.local/share/ttools/session.json`), so you only log in once.
 
 ### 3. Create `~/.ttools.yaml`
 
@@ -61,105 +95,112 @@ api:
   id: 123456
   hash: "0123456789abcdef0123456789abcdef"
 session:
-  phone: "+123456789"   # user account; omit if using bot_token
-  password: ""          # optional 2FA password (NOT the login code)
-  # bot_token: "123456:ABC-DEF..."   # bot mode instead of phone
+  phone: "+123456789"       # user account...
+  # bot_token: "123456:ABC" # ...or a bot, not both
+  password: ""              # optional 2FA password (not the login code)
 defaults:
-  chat: "@mychannel"    # or a numeric id such as -1001234567890
+  chat: "@mychannel"        # or a numeric id such as -1001234567890
   thumb: ~/Pictures/thumb.jpg
 ```
 
-Configure either `phone` or `bot_token`, not both. Every value can also come
-from a `TTOOLS_*` environment variable (`TTOOLS_API_ID`,
-`TTOOLS_SESSION_BOT_TOKEN`…) or a global flag (`--api-id`, `--bot-token`,
-`--chat`…; see `ttools --help`). Use `--config` to load another file.
+Every setting can also be passed as a `TTOOLS_*` environment variable
+(`TTOOLS_API_ID`, `TTOOLS_SESSION_BOT_TOKEN`…) or a global flag (`--api-id`,
+`--bot-token`, `--chat`…). Use `--config` to load a different file.
 
-> **About Telegram's terms.** Using the API from a user account is allowed,
-> but you're bound by the [Telegram API Terms of Service](https://core.telegram.org/api/terms):
-> don't use it for spam, mass messaging or flooding. Accounts that abuse the
-> API can be limited or banned. `ttools` respects `FLOOD_WAIT` responses and
-> waits before retrying.
+> [!WARNING]
+> Automating a user account is allowed, but it's bound by the
+> [Telegram API Terms of Service](https://core.telegram.org/api/terms). Don't
+> use it for spam or mass messaging: accounts that abuse the API can be
+> limited or banned.
 
 ## Usage
 
+**Send text posts**
+
 ```bash
-# Send text
 ttools posts new "Hello **world**"
 ttools posts new --message-file post.md
 cat post.md | ttools posts new --chat -1001234567890
 ttools posts new --html "<b>Hello</b> <tg-spoiler>world</tg-spoiler>"
-
-# Preview what would be sent (rendered and split), without connecting
-cat post.md | ttools posts new --dry-run
-
-# Upload media
-ttools posts new video.mp4 --message "My caption"
-ttools posts new --file a.mp4 --file b.mp4 --autocaption
-
-# Edit posts: text, media or both
-ttools posts edit --post-id 123 "New text"
-ttools posts edit --post-id 123 --message-file post.md --dry-run
-ttools posts edit --post-id 123 --file new-video.mp4
-ttools posts edit --post-id 123 --clear-message
-ttools posts edit --search "keyword"     # pick the post interactively
-
-# Browse
-ttools posts list --limit 50
-ttools posts find --search "keyword"
-ttools chats list
 ```
 
-Run any command with `--help` for all its flags.
+**Preview before sending**
 
-### Formatting
+```bash
+ttools posts new --message-file post.md --dry-run
+```
 
-Messages are parsed as markdown by default. Use `--html` for
-[Telegram-style HTML](https://core.telegram.org/bots/api#html-style)
-(`<b>`, `<i>`, `<u>`, `<s>`, `<tg-spoiler>`, `<a href>`, `<code>`, `<pre>`,
-`<blockquote>`…), or `--plain` to send the text untouched.
+**Upload media**
 
-The markdown subset:
+```bash
+ttools posts new video.mp4 --message "My caption"
+ttools posts new *.mp4 --autocaption   # caption from each file name
+ttools posts new *.jpg --group         # a single album
+```
+
+**Edit posts**
+
+```bash
+ttools posts edit --post-id 123 "New text"
+ttools posts edit --post-id 123 --file new-video.mp4
+ttools posts edit --post-id 123 --clear-message
+ttools posts edit --search "keyword"   # pick the post from a list
+```
+
+**Browse**
+
+```bash
+ttools posts list
+ttools posts find "keyword" --video
+ttools chats find --type broadcast --has-username
+```
+
+Run any command with `--help` to see all its options.
+
+### Batches and long messages
+
+- Separate several posts in one input with `[npost]` (or set your own with
+  `--delimiter`). See [`examples/message.md`](examples/message.md).
+- Messages over 4096 characters are split into several messages at paragraph
+  breaks, then line breaks, then spaces, keeping the formatting intact. Edits
+  can't be split, so an edit over the limit fails.
+- `--dry-run` shows each message as it would be sent, with its length, and
+  needs no credentials. Use `--color=always` or `--color=never` to override
+  color detection (`NO_COLOR` is honoured).
+- `--silent` sends without a notification and `--no-preview` disables link
+  previews.
+
+## Formatting
+
+Messages use markdown by default:
 
 | Syntax | Result |
 |---|---|
 | `**bold**` | **bold** |
-| `_italic_` | *italic* (only at word boundaries, so `my_var` is left alone) |
+| `_italic_` | *italic* |
 | `` `code` `` | inline code |
-| ` ```lang` … ` ``` ` | code block |
-| `[text](https://url)` | link |
+| ` ```lang ` … ` ``` ` | code block |
+| `[text](https://example.com)` | link |
 | `> quote` | blockquote |
 | `>> quote` | expandable blockquote |
 
-Bare URLs are never altered. Formatting can be nested
-(`**[bold link](https://example.com)**`). Media captions on upload are
-currently sent as plain text.
+Formatting can be nested, as in `**[bold link](https://example.com)**`.
+Underscores inside words (`my_var`) and bare URLs are always left untouched.
 
-### Long messages, batches and `--dry-run`
+Use `--html` for [Telegram-style HTML](https://core.telegram.org/bots/api#html-style),
+which also supports underline, strikethrough and spoilers, or `--plain` to send
+the text as is.
 
-- Messages over Telegram's 4096-character limit are **split** into several
-  messages, cutting at paragraph breaks, then line breaks, then spaces, so
-  formatting is kept. Edits can't be split: an edit over the limit fails.
-- One input can hold several posts separated by `[npost]` (change it with
-  `--delimiter`); see [`examples/message.md`](examples/message.md).
-- `--dry-run` shows each message exactly as it would be sent, with its length,
-  and never connects to Telegram (so it needs no credentials).
-  `posts edit --dry-run` requires `--post-id`. Use `--color=always|never` to
-  force or disable colors (default `auto`, which honours `NO_COLOR`).
-- Captions over 1024 characters print a warning (they need Premium); over 2048
-  (or 1024 for bots) the upload is refused before it starts.
-- `--no-preview` disables link previews and `--silent` sends without a
-  notification.
+> [!NOTE]
+> Captions of new uploads are currently sent as plain text, without parsing
+> markdown or HTML.
 
 ## Development
 
 ```bash
-make test     # go test ./...
-make fmt
-make build/all   # cross-compile into dist/
+make test       # run the tests
+make fmt        # format the code
+make build/all  # cross-compile into dist/
 ```
 
-Releases are built by GoReleaser when a `v*` tag is pushed.
-
-## License
-
-[MIT](LICENSE)
+Releases are built with GoReleaser when a `v*` tag is pushed.
