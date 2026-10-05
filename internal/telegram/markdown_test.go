@@ -246,8 +246,8 @@ func TestParseMarkdownV2_EmojiBeforeBold(t *testing.T) {
 	}
 
 	// "👋 " = 5 bytes (4 for emoji + 1 for space) but 3 UTF-16 units (2 for emoji + 1 for space)
-	expectedOffset := 3  // UTF-16 code units
-	expectedLength := 9  // "bold text" (ASCII, same in UTF-8 and UTF-16)
+	expectedOffset := 3 // UTF-16 code units
+	expectedLength := 9 // "bold text" (ASCII, same in UTF-8 and UTF-16)
 
 	if bold.Offset != expectedOffset {
 		t.Errorf("Bold offset: expected %d (UTF-16), got %d", expectedOffset, bold.Offset)
