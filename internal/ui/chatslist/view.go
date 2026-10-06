@@ -11,10 +11,14 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/elboletaire/telegram-tools/internal/telegram"
+	"github.com/elboletaire/telegram-tools/internal/ui"
 )
 
 // Display renders a read-only, paginated list of chats.
 func Display(in io.Reader, out io.Writer, search string, chats []telegram.ChatInfo, pageSize int) error {
+	if !ui.Interactive(in, out) {
+		return writePlain(out, chats)
+	}
 	pageSize = normalizePageSize(pageSize, len(chats))
 	_, err := runChatsListProgram(newChatsListModel(search, chats, pageSize, false), in, out)
 	return err
@@ -22,6 +26,9 @@ func Display(in io.Reader, out io.Writer, search string, chats []telegram.ChatIn
 
 // Select renders a selectable list and returns the chosen chat if confirmed.
 func Select(in io.Reader, out io.Writer, search string, chats []telegram.ChatInfo, pageSize int) (telegram.ChatInfo, bool, error) {
+	if !ui.Interactive(in, out) {
+		return telegram.ChatInfo{}, false, fmt.Errorf("selecting a chat needs an interactive terminal; pass --chat instead")
+	}
 	pageSize = normalizePageSize(pageSize, len(chats))
 	model := newChatsListModel(search, chats, pageSize, true)
 	final, err := runChatsListProgram(model, in, out)
@@ -32,6 +39,20 @@ func Select(in io.Reader, out io.Writer, search string, chats []telegram.ChatInf
 		return telegram.ChatInfo{}, false, nil
 	}
 	return final.chats[final.chosen], true, nil
+}
+
+// writePlain prints one tab-separated line per chat: id, type, @username, title.
+func writePlain(out io.Writer, chats []telegram.ChatInfo) error {
+	for _, c := range chats {
+		username := ""
+		if c.Username != "" {
+			username = "@" + c.Username
+		}
+		if _, err := fmt.Fprintf(out, "%d\t%s\t%s\t%s\n", c.ID, c.Type, username, c.Title); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 type chatsListModel struct {

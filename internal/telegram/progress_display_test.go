@@ -63,3 +63,13 @@ func TestProgressContentWidth(t *testing.T) {
 		t.Fatalf("width = %d, want %d", tooSmall, 1)
 	}
 }
+
+// Without a terminal (CI logs, pipes) uploads must log plain lines instead of
+// animating a progress bar with ANSI escape codes.
+func TestNewUploadProgressDisplay_NilWithoutTerminal(t *testing.T) {
+	if d := newUploadProgressDisplay(&bytes.Buffer{}, "Uploading", "video.mp4", "", "", false); d != nil {
+		d.Fail(nil)
+		d.Wait()
+		t.Fatal("expected no animated display for a non-terminal writer")
+	}
+}

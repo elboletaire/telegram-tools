@@ -28,12 +28,10 @@ type uploadProgressDisplay struct {
 var _ uploader.Progress = (*uploadProgressDisplay)(nil)
 
 func newUploadProgressDisplay(out io.Writer, actionLabel, fileName, thumbName, captionPreview string, removingCaption bool) *uploadProgressDisplay {
-	if out == nil {
+	// Only animate on a terminal; callers log plain lines otherwise.
+	width, ok := terminalWidthFromWriter(out)
+	if out == nil || !ok {
 		return nil
-	}
-	width := defaultProgressBarWidth
-	if terminalWidth, ok := terminalWidthFromWriter(out); ok {
-		width = terminalWidth
 	}
 	model := newUploadProgressModel(actionLabel, fileName, thumbName, captionPreview, removingCaption, width)
 	prog := tea.NewProgram(model, tea.WithOutput(out), tea.WithInput(nil), tea.WithoutSignalHandler())

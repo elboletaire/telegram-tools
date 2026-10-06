@@ -11,10 +11,15 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/elboletaire/telegram-tools/internal/telegram"
+	"github.com/elboletaire/telegram-tools/internal/ui"
 )
 
-// Display renders a read-only, paginated list of posts.
+// Display renders a read-only, paginated list of posts. Without a terminal it
+// prints one tab-separated line per post instead: id, date, media, caption.
 func Display(in io.Reader, out io.Writer, chatDisplay, search string, posts []telegram.PostInfo, pageSize int) error {
+	if !ui.Interactive(in, out) {
+		return writePlain(out, posts)
+	}
 	pageSize = normalizePageSize(pageSize, len(posts))
 	_, err := runPostsListProgram(newPostsListModel(chatDisplay, search, posts, pageSize, false), in, out)
 	return err
@@ -22,6 +27,9 @@ func Display(in io.Reader, out io.Writer, chatDisplay, search string, posts []te
 
 // Select renders a selectable list and returns the chosen post if confirmed.
 func Select(in io.Reader, out io.Writer, chatDisplay, search string, posts []telegram.PostInfo, pageSize int) (telegram.PostInfo, bool, error) {
+	if !ui.Interactive(in, out) {
+		return telegram.PostInfo{}, false, fmt.Errorf("selecting a post needs an interactive terminal; pass --post-id instead")
+	}
 	pageSize = normalizePageSize(pageSize, len(posts))
 	model := newPostsListModel(chatDisplay, search, posts, pageSize, true)
 	final, err := runPostsListProgram(model, in, out)
@@ -32,6 +40,16 @@ func Select(in io.Reader, out io.Writer, chatDisplay, search string, posts []tel
 		return telegram.PostInfo{}, false, nil
 	}
 	return final.posts[final.chosen], true, nil
+}
+
+func writePlain(out io.Writer, posts []telegram.PostInfo) error {
+	for _, p := range posts {
+		caption := strings.Join(strings.Fields(p.Caption), " ")
+		if _, err := fmt.Fprintf(out, "%d\t%s\t%s\t%s\n", p.ID, p.Date.Format("2006-01-02 15:04"), p.MediaType, caption); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 type postsListModel struct {
