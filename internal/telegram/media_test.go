@@ -1,6 +1,17 @@
 package telegram
 
-import "testing"
+import (
+	"context"
+	"image"
+	"image/color"
+	"image/jpeg"
+	"image/png"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/gotd/td/tg"
+)
 
 func TestUploadPartSize(t *testing.T) {
 	const mb = 1024 * 1024
@@ -51,5 +62,74 @@ func TestUploadParts(t *testing.T) {
 		if got := uploadParts(tt.size, tt.partSize); got != tt.want {
 			t.Errorf("uploadParts(%d, %d) = %d, want %d", tt.size, tt.partSize, got, tt.want)
 		}
+	}
+}
+
+func writeTestImage(t *testing.T, name string) string {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, 16, 16))
+	for x := 0; x < 16; x++ {
+		for y := 0; y < 16; y++ {
+			img.Set(x, y, color.RGBA{R: uint8(x * 16), G: uint8(y * 16), B: 128, A: 255})
+		}
+	}
+	path := filepath.Join(t.TempDir(), name)
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if filepath.Ext(name) == ".png" {
+		err = png.Encode(f, img)
+	} else {
+		err = jpeg.Encode(f, img, nil)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// ffprobe reports still images as an mjpeg/png "video stream"; they must still
+// be sent as photos, not as documents.
+func TestAnalyzeMedia_StillImagesArePhotos(t *testing.T) {
+	for _, name := range []string{"photo.jpg", "photo.png"} {
+		t.Run(name, func(t *testing.T) {
+			meta, _ := analyzeMedia(context.Background(), writeTestImage(t, name))
+			if meta.Kind != mediaKindPhoto {
+				t.Errorf("expected a photo, got kind %d (mime %s)", meta.Kind, meta.MIME)
+			}
+		})
+	}
+}
+
+func TestBuildInputMedia(t *testing.T) {
+	file := &tg.InputFile{ID: 1}
+
+	if _, ok := buildInputMedia(file, nil, "a.jpg", mediaMetadata{Kind: mediaKindPhoto, MIME: "image/jpeg"}).(*tg.InputMediaUploadedPhoto); !ok {
+		t.Error("photos must be sent as InputMediaUploadedPhoto")
+	}
+
+	tests := []struct {
+		name        string
+		meta        mediaMetadata
+		wantNosound bool
+	}{
+		// Without nosound_video Telegram turns silent videos into GIF
+		// animations, which also can't be part of albums.
+		{name: "silent video", meta: mediaMetadata{Kind: mediaKindVideo, MIME: "video/mp4"}, wantNosound: true},
+		{name: "video with audio", meta: mediaMetadata{Kind: mediaKindVideo, MIME: "video/mp4", HasAudio: true}},
+		{name: "gif stays an animation", meta: mediaMetadata{Kind: mediaKindVideo, MIME: "image/gif"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			doc, ok := buildInputMedia(file, nil, "v.mp4", tt.meta).(*tg.InputMediaUploadedDocument)
+			if !ok {
+				t.Fatal("videos must be sent as InputMediaUploadedDocument")
+			}
+			if doc.NosoundVideo != tt.wantNosound {
+				t.Errorf("expected NosoundVideo=%v, got %v", tt.wantNosound, doc.NosoundVideo)
+			}
+		})
 	}
 }

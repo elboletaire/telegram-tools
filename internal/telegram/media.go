@@ -94,15 +94,21 @@ func (s *Service) prepareMedia(ctx context.Context, api *tg.Client, req mediaReq
 		}
 	}
 
+	if meta.Kind == mediaKindPhoto && thumb != nil && s.io.err != nil {
+		fmt.Fprintf(s.io.err, "warning: custom thumbnails are ignored for photos (%s)\n", req.FilePath)
+	}
+	return buildInputMedia(file, thumb, req.FilePath, meta), nil
+}
+
+// buildInputMedia turns an uploaded file into the input media to send,
+// according to its detected kind.
+func buildInputMedia(file, thumb tg.InputFileClass, path string, meta mediaMetadata) tg.InputMediaClass {
 	switch meta.Kind {
 	case mediaKindPhoto:
-		if thumb != nil && s.io.err != nil {
-			fmt.Fprintf(s.io.err, "warning: custom thumbnails are ignored for photos (%s)\n", req.FilePath)
-		}
-		return &tg.InputMediaUploadedPhoto{File: file}, nil
+		return &tg.InputMediaUploadedPhoto{File: file}
 	case mediaKindVideo:
 		attrs := []tg.DocumentAttributeClass{
-			&tg.DocumentAttributeFilename{FileName: filepath.Base(req.FilePath)},
+			&tg.DocumentAttributeFilename{FileName: filepath.Base(path)},
 		}
 		videoAttr := &tg.DocumentAttributeVideo{
 			Duration: meta.Duration.Seconds(),
@@ -119,22 +125,27 @@ func (s *Service) prepareMedia(ctx context.Context, api *tg.Client, req mediaReq
 			MimeType:   meta.MIME,
 			Attributes: attrs,
 		}
+		// Without this flag Telegram turns silent videos into GIF animations
+		// (which can't be part of albums). Real GIFs stay animations.
+		if !meta.HasAudio && meta.MIME != "image/gif" {
+			media.SetNosoundVideo(true)
+		}
 		if thumb != nil {
 			media.Thumb = thumb
 		}
-		return media, nil
+		return media
 	default:
 		media := &tg.InputMediaUploadedDocument{
 			File:     file,
 			MimeType: meta.MIME,
 			Attributes: []tg.DocumentAttributeClass{
-				&tg.DocumentAttributeFilename{FileName: filepath.Base(req.FilePath)},
+				&tg.DocumentAttributeFilename{FileName: filepath.Base(path)},
 			},
 		}
 		if thumb != nil {
 			media.Thumb = thumb
 		}
-		return media, nil
+		return media
 	}
 }
 
@@ -162,6 +173,13 @@ func analyzeMedia(ctx context.Context, path string) (mediaMetadata, error) {
 		return meta, err
 	}
 	meta.MIME = mimeType
+
+	// ffprobe reports still images as an mjpeg/png "video stream", so trust
+	// the MIME type for them: they must be sent as photos.
+	if kind := guessKindFromMIME(mimeType); kind == mediaKindPhoto {
+		meta.Kind = kind
+		return meta, nil
+	}
 
 	data, err := ffprobe.GetProbeDataContext(ctx, path)
 	if err != nil {
