@@ -105,7 +105,7 @@ Examples:
 				}
 
 				// Use server-side search
-				fmt.Fprintln(out, "Searching...")
+				fmt.Fprintln(cmd.ErrOrStderr(), "Searching...")
 				svc := telegram.NewService(cfg, telegram.WithIO(cmd.InOrStdin(), out, cmd.ErrOrStderr()))
 				searchReq := telegram.SearchPostsRequest{
 					ChatId: chat,
@@ -113,10 +113,10 @@ Examples:
 					Query:  searchText,
 					Filter: searchFilter,
 					OnBatch: func(total int) {
-						fmt.Fprintf(out, "\rSearching... %d fetched", total)
+						fmt.Fprintf(cmd.ErrOrStderr(), "\rSearching... %d fetched", total)
 					},
 					OnFloodWait: func(delay time.Duration, total int) {
-						floodwait.Start(cmd.Context(), out, delay, func(remaining time.Duration) string {
+						floodwait.Start(cmd.Context(), cmd.ErrOrStderr(), delay, func(remaining time.Duration) string {
 							return fmt.Sprintf("\rHit rate limit, retrying in %.2fs after %d fetched...", remaining.Seconds(), total)
 						})
 					},
@@ -146,7 +146,7 @@ Examples:
 						return err
 					}
 				} else {
-					fmt.Fprintln(out)
+					fmt.Fprintln(cmd.ErrOrStderr())
 
 					// Apply client-side filename filter (cannot be done server-side)
 					if opts.filename != "" {
@@ -160,7 +160,7 @@ Examples:
 				return nil
 			}
 
-			fmt.Fprintf(out, "Found %d posts\n\n", len(posts))
+			fmt.Fprintf(cmd.ErrOrStderr(), "Found %d posts\n\n", len(posts))
 
 			// Display using the same TUI as list
 			if err := postslist.Display(cmd.InOrStdin(), out, chat, searchText, posts, sharedOpts.pageSize); err != nil {

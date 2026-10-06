@@ -60,22 +60,22 @@ func fetchPostsWithProgress(ctx context.Context, cfg *config.Config, out io.Writ
 		Limit:  req.Limit,
 		Search: req.Search,
 		OnBatch: func(total int) {
-			fmt.Fprintf(out, "\rLoading posts... %d fetched", total)
+			fmt.Fprintf(errOut, "\rLoading posts... %d fetched", total)
 		},
 		OnFloodWait: func(delay time.Duration, total int) {
-			floodwait.Start(ctx, out, delay, func(remaining time.Duration) string {
+			floodwait.Start(ctx, errOut, delay, func(remaining time.Duration) string {
 				return fmt.Sprintf("\rHit rate limit, retrying in %.2fs after %d fetched...", remaining.Seconds(), total)
 			})
 		},
 	}
 
-	fmt.Fprintln(out, "Loading posts...")
+	fmt.Fprintln(errOut, "Loading posts...")
 	svc := telegram.NewService(cfg, telegram.WithIO(in, out, errOut))
 	posts, err := svc.ListPosts(ctx, listReq)
 	if err != nil {
 		return nil, err
 	}
-	fmt.Fprintln(out)
+	fmt.Fprintln(errOut)
 
 	// Apply media type filtering if specified
 	if req.MediaFilter != "" || req.FileFilter != "" {

@@ -144,7 +144,7 @@ Duration format: 24h, 7d, 30d, 90d`,
 				return nil
 			}
 
-			fmt.Fprintf(out, "Found %d chats\n\n", len(chats))
+			fmt.Fprintf(cmd.ErrOrStderr(), "Found %d chats\n\n", len(chats))
 
 			// Display using the same TUI as list
 			if err := chatslist.Display(cmd.InOrStdin(), out, searchText, chats, sharedOpts.pageSize); err != nil {

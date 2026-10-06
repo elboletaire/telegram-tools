@@ -51,7 +51,7 @@ func newPostsListCommand(sharedOpts *sharedPostsOptions) *cobra.Command {
 				return nil
 			}
 
-			fmt.Fprintf(out, "Loaded %d posts\n\n", len(posts))
+			fmt.Fprintf(cmd.ErrOrStderr(), "Loaded %d posts\n\n", len(posts))
 
 			// Display using the TUI
 			if err := postslist.Display(cmd.InOrStdin(), out, chat, "", posts, sharedOpts.pageSize); err != nil {

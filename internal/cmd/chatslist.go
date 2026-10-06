@@ -78,7 +78,7 @@ Examples:
 				return nil
 			}
 
-			fmt.Fprintf(out, "Loaded %d chats\n\n", len(chats))
+			fmt.Fprintf(cmd.ErrOrStderr(), "Loaded %d chats\n\n", len(chats))
 
 			// Display using the TUI
 			if err := chatslist.Display(cmd.InOrStdin(), out, opts.search, chats, sharedOpts.pageSize); err != nil {
