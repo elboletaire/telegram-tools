@@ -675,14 +675,11 @@ func (s *Service) ListPosts(ctx context.Context, req ListPostsRequest) ([]PostIn
 			}
 			prevOffsetID = offsetID
 
-			totalFetched += len(messages)
+			pageSize := len(messages)
+			page := messages[:takeWithinLimit(pageSize, totalFetched, limit)]
+			totalFetched += pageSize
 
-			// Stop fetching if we've reached the API fetch limit
-			if limit > 0 && totalFetched >= limit {
-				break
-			}
-
-			for _, msg := range messages {
+			for _, msg := range page {
 				caption := strings.TrimSpace(msg.Message)
 				if filter != "" && !strings.Contains(strings.ToLower(caption), filter) {
 					continue
@@ -699,6 +696,11 @@ func (s *Service) ListPosts(ctx context.Context, req ListPostsRequest) ([]PostIn
 
 			if req.OnBatch != nil {
 				req.OnBatch(totalFetched)
+			}
+
+			// Stop fetching once the API fetch limit is reached
+			if limit > 0 && totalFetched >= limit {
+				break
 			}
 
 			offsetID = lastID
@@ -846,6 +848,7 @@ func (s *Service) ListChats(ctx context.Context, req ListChatsRequest) ([]ChatIn
 		filter := strings.ToLower(strings.TrimSpace(req.Search))
 		totalFetched := 0
 		seen := make(map[int64]bool) // Track seen chat IDs to avoid duplicates
+		seenDialogs := make(map[string]bool)
 
 		// Calculate chunk limit based on requested limit
 		chunkLimit := 100
@@ -889,15 +892,13 @@ func (s *Service) ListChats(ctx context.Context, req ListChatsRequest) ([]ChatIn
 				break
 			}
 
-			totalFetched += len(batch.dialogs)
-
-			// Stop fetching if we've reached the API fetch limit
-			if req.Limit > 0 && totalFetched >= req.Limit {
-				break
-			}
+			newInBatch := countNewDialogs(batch.dialogs, seenDialogs)
+			pageSize := len(batch.dialogs)
+			dialogs := batch.dialogs[:takeWithinLimit(pageSize, totalFetched, req.Limit)]
+			totalFetched += pageSize
 
 			// Extract chat info from dialogs
-			for _, d := range batch.dialogs {
+			for _, d := range dialogs {
 				dialog, ok := d.(*tg.Dialog)
 				if !ok {
 					continue
@@ -930,6 +931,10 @@ func (s *Service) ListChats(ctx context.Context, req ListChatsRequest) ([]ChatIn
 				req.OnBatch(totalFetched)
 			}
 
+			if (req.Limit > 0 && totalFetched >= req.Limit) || dialogsDone(resp, totalFetched, newInBatch) {
+				break
+			}
+
 			// Set up pagination for next batch
 			last, ok := batch.dialogs[len(batch.dialogs)-1].(*tg.Dialog)
 			if !ok {
@@ -937,11 +942,9 @@ func (s *Service) ListChats(ctx context.Context, req ListChatsRequest) ([]ChatIn
 			}
 			offsetID = last.TopMessage
 			offsetDate = findMessageDate(batch.messages, last.TopMessage)
-			if offsetDate == 0 {
-				offsetDate = int(time.Now().Unix())
-			}
-			offsetPeer = buildInputPeer(last.Peer, batch.chats)
-			if offsetPeer == nil {
+			offsetPeer = buildInputPeer(last.Peer, batch.chats, batch.users)
+			if offsetDate == 0 || offsetPeer == nil {
+				// Without a date the next page would restart from the top.
 				break
 			}
 		}
@@ -1264,6 +1267,8 @@ func (s *Service) lookupChannelDialog(ctx context.Context, api *tg.Client, chann
 	offsetID := 0
 	offsetDate := 0
 	onFlood := s.buildFloodLogger(fmt.Sprintf("%d", channelID), "dialogs")
+	totalFetched := 0
+	seenDialogs := make(map[string]bool)
 	throttle := newThrottle(500 * time.Millisecond)
 	for {
 		if err := throttle.Wait(ctx); err != nil {
@@ -1297,18 +1302,20 @@ func (s *Service) lookupChannelDialog(ctx context.Context, api *tg.Client, chann
 		if len(batch.dialogs) == 0 {
 			break
 		}
+		totalFetched += len(batch.dialogs)
+		if dialogsDone(resp, totalFetched, countNewDialogs(batch.dialogs, seenDialogs)) {
+			break
+		}
 		last, ok := batch.dialogs[len(batch.dialogs)-1].(*tg.Dialog)
 		if !ok {
 			break
 		}
 		offsetID = last.TopMessage
 		offsetDate = findMessageDate(batch.messages, last.TopMessage)
-		if offsetDate == 0 {
-			offsetDate = int(time.Now().Unix())
-		}
-		offsetPeer = buildInputPeer(last.Peer, batch.chats)
-		if offsetPeer == nil {
-			offsetPeer = &tg.InputPeerEmpty{}
+		offsetPeer = buildInputPeer(last.Peer, batch.chats, batch.users)
+		if offsetDate == 0 || offsetPeer == nil {
+			// Without a date the next page would restart from the top.
+			break
 		}
 	}
 	return nil, nil
@@ -1318,6 +1325,7 @@ type dialogBatch struct {
 	dialogs  []tg.DialogClass
 	messages []tg.MessageClass
 	chats    []tg.ChatClass
+	users    []tg.UserClass
 }
 
 func newDialogBatch(resp tg.MessagesDialogsClass) (dialogBatch, error) {
@@ -1327,12 +1335,14 @@ func newDialogBatch(resp tg.MessagesDialogsClass) (dialogBatch, error) {
 			dialogs:  v.Dialogs,
 			messages: v.Messages,
 			chats:    v.Chats,
+			users:    v.Users,
 		}, nil
 	case *tg.MessagesDialogsSlice:
 		return dialogBatch{
 			dialogs:  v.Dialogs,
 			messages: v.Messages,
 			chats:    v.Chats,
+			users:    v.Users,
 		}, nil
 	default:
 		return dialogBatch{}, fmt.Errorf("unsupported dialogs response %T", resp)
@@ -1365,19 +1375,29 @@ func findChannel(chats []tg.ChatClass, channelID int64) *tg.Channel {
 
 func findMessageDate(messages []tg.MessageClass, id int) int {
 	for _, m := range messages {
-		msg, ok := m.(*tg.Message)
-		if !ok {
-			continue
-		}
-		if msg.ID == id {
-			return msg.Date
+		switch msg := m.(type) {
+		case *tg.Message:
+			if msg.ID == id {
+				return msg.Date
+			}
+		case *tg.MessageService:
+			if msg.ID == id {
+				return msg.Date
+			}
 		}
 	}
 	return 0
 }
 
-func buildInputPeer(peer tg.PeerClass, chats []tg.ChatClass) tg.InputPeerClass {
+func buildInputPeer(peer tg.PeerClass, chats []tg.ChatClass, users []tg.UserClass) tg.InputPeerClass {
 	switch p := peer.(type) {
+	case *tg.PeerUser:
+		for _, u := range users {
+			if user, ok := u.(*tg.User); ok && user.ID == p.UserID {
+				return &tg.InputPeerUser{UserID: user.ID, AccessHash: user.AccessHash}
+			}
+		}
+		return &tg.InputPeerEmpty{}
 	case *tg.PeerChannel:
 		ch := findChannel(chats, p.ChannelID)
 		if ch == nil || ch.AccessHash == 0 {
@@ -1456,4 +1476,45 @@ func (s *Service) evictPeerIfStale(channel *channelPeer, err error) bool {
 	}
 
 	return true
+}
+
+// dialogsDone reports whether paginating messages.getDialogs is complete: the
+// server sent the whole list, the slice's total was reached, or the page only
+// repeated dialogs already seen.
+func dialogsDone(resp tg.MessagesDialogsClass, totalFetched, newInBatch int) bool {
+	switch v := resp.(type) {
+	case *tg.MessagesDialogsSlice:
+		return totalFetched >= v.Count || newInBatch == 0
+	case *tg.MessagesDialogs:
+		return true
+	default:
+		return true
+	}
+}
+
+// takeWithinLimit returns how many items of a page of size batch can be used
+// when fetched items were already taken and limit is the maximum (0 = no limit).
+func takeWithinLimit(batch, fetched, limit int) int {
+	if limit <= 0 {
+		return batch
+	}
+	return max(0, min(batch, limit-fetched))
+}
+
+// countNewDialogs returns how many dialogs of the page were not seen before,
+// and marks them as seen.
+func countNewDialogs(dialogs []tg.DialogClass, seen map[string]bool) int {
+	n := 0
+	for _, d := range dialogs {
+		dialog, ok := d.(*tg.Dialog)
+		if !ok {
+			continue
+		}
+		key := fmt.Sprintf("%T:%v", dialog.Peer, dialog.Peer)
+		if !seen[key] {
+			seen[key] = true
+			n++
+		}
+	}
+	return n
 }
